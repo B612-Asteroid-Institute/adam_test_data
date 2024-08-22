@@ -1,0 +1,68 @@
+[project]
+name = "adam_test_data"
+dynamic = ["version"]
+description = "Test dataset generation utilities for ADAM"
+authors = [
+    { name = "Joachim Moeyens", email = "moeyensj@uw.edu" },
+]
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = []
+requires-python = ">=3.11,<4.0"
+dependencies = [
+    "adam_core==0.2.2",
+    "ray",
+    "sorcha==0.9.1",
+]
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+[tool.pdm.build]
+includes = ["src/adam_test_data/"]
+
+[tool.pdm.version]
+source = "scm"
+write_to = "adam_test_data/_version.py"
+write_template = "__version__ = '{}'"
+
+
+[project.urls]
+"Documentation" = "https://github.com/B612-Asteroid-Institute/adam_test_data#README"
+"Issues" = "https://github.com/B612-Asteroid-Institute/adam_test_data/issues"
+"Source" = "https://github.com/B612-Asteroid-Institute/adam_test_data/"
+
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pdm",
+    "mypy",
+    "pytest",
+    "pytest-cov",
+    "pytest-benchmark",
+    "black",
+    "isort",
+    "ipython"
+]
+
+[tool.pdm.scripts]
+check = {composite = ["lint", "typecheck", "test"]}
+format = { composite = ["black ./src/adam_test_data", "isort ./src/adam_test_data"]}
+lint = { composite = ["ruff check ./src/adam_test_data", "black --check ./src/adam_test_data", "isort --check-only ./src/adam_test_data"] }
+fix = "ruff ./src/adam_test_data --fix"
+typecheck = "mypy --strict ./src/adam_test_data"
+test = "pytest --benchmark-disable {args}"
+doctest = "pytest --doctest-plus --doctest-only"
+benchmark = "pytest --benchmark-only"
+coverage = "pytest --cov=src --cov-report=xml"
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+ignore_missing_imports = true
+
