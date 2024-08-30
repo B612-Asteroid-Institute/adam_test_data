@@ -108,6 +108,7 @@ def test_observatory_to_sorcha_config():
         bright_limit=[16, 16, 16, 16, 16, 16],
         fov=FieldOfView(camera_model="circle", fill_factor=0.9, circle_radius=3),
         simulation=Simulation(ang_fov=1.0, fov_buffer=0.1),
+        main_filter="r",
     )
 
     assert (
@@ -130,7 +131,7 @@ ar_obs_code = X05
 ar_healpix_order = 6
 
 [FILTERS]
-observing_filters = u,g,r,i,z,y
+observing_filters = r,u,g,i,z,y
 
 [SATURATION]
 bright_limit = 16,16,16,16,16,16
@@ -164,3 +165,19 @@ vignetting_on = True
 trailing_losses_on = True
 """
     )
+
+
+def test_observatory_to_sorcha_config_raises():
+    # Test that observatory_to_sorcha_config raises the correct exceptions when invalid argument
+    # combinations are passed.
+
+    with pytest.raises(ValueError, match="Main filter r not in list of filters"):
+        obs = Observatory(
+            code="X05",
+            filters=["u", "g", "i", "z", "y"],
+            bright_limit=[16, 16, 16, 16, 16, 16],
+            fov=FieldOfView(camera_model="circle", fill_factor=0.9, circle_radius=3),
+            simulation=Simulation(ang_fov=1.0, fov_buffer=0.1),
+            main_filter="r",
+        )
+        observatory_to_sorcha_config(obs)

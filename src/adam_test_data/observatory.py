@@ -64,6 +64,7 @@ ar_healpix_order = {self.healpix_order}"""
 class Observatory:
     code: str
     filters: list[str]
+    main_filter: str
     bright_limit: list[float]
     fov: FieldOfView
     simulation: Simulation
@@ -91,6 +92,15 @@ def observatory_to_sorcha_config(
     sql_query = f"SELECT * FROM pointings WHERE observatory_code = '{observatory.code}'"
     if time_range is not None:
         sql_query += f" AND observationStartMJD >= {time_range[0]} AND observationStartMJD <= {time_range[1]}"
+
+    # The main filter needs to be first in the list of filters
+    if observatory.main_filter in observatory.filters:
+        observatory.filters.remove(observatory.main_filter)
+        observatory.filters.insert(0, observatory.main_filter)
+    else:
+        raise ValueError(
+            f"Main filter {observatory.main_filter} not in list of filters"
+        )
 
     config = f"""
 # Sorcha Configuration File - ADAM Test Data - {observatory.code}
