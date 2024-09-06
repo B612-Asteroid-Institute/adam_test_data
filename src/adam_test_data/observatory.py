@@ -73,6 +73,8 @@ class Observatory:
 def observatory_to_sorcha_config(
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
+    randomization: bool = True,
+    output_columns: Literal["basic", "all"] = "basic",
 ) -> str:
     """
     Create a Sorcha configuration file from an Observatory object and, optionally, a time range.
@@ -83,6 +85,10 @@ def observatory_to_sorcha_config(
         The observatory object to create the configuration file for.
     time_range : list[float], optional
         The time range to filter the pointings by, by default None.
+    randomization : bool, optional
+        Ramdomize the photometry and astrometry using the calculated uncertainties, by default True.
+    output_columns : Literal["basic", "all"], optional
+        The columns to output in the Sorcha output, by default "all".
 
     Returns
     -------
@@ -132,7 +138,7 @@ fading_function_peak_efficiency = 1
 
 [OUTPUT]
 output_format = csv
-output_columns = all
+output_columns = {output_columns}
 
 [LIGHTCURVE]
 lc_model = none
@@ -141,7 +147,7 @@ lc_model = none
 comet_activity = none
 
 [EXPERT]
-randomization_on = True
+randomization_on = {randomization}
 vignetting_on = True
 trailing_losses_on = True
 """

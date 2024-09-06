@@ -151,7 +151,7 @@ fading_function_peak_efficiency = 1
 
 [OUTPUT]
 output_format = csv
-output_columns = all
+output_columns = basic
 
 [LIGHTCURVE]
 lc_model = none

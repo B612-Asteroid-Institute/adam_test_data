@@ -2,13 +2,14 @@ import os
 import tempfile
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 from adam_core.coordinates import CartesianCoordinates
 from adam_core.coordinates.origin import Origin
 from adam_core.orbits import Orbits
 from adam_core.time import Timestamp
 
-from ..main import write_sorcha_inputs
+from ..main import sorcha, write_sorcha_inputs
 from ..observatory import FieldOfView, Observatory, Simulation
 from ..pointings import Pointings
 from ..populations import PhotometricProperties, SmallBodies
@@ -108,6 +109,7 @@ def pointings():
             -18.01255021852454,
         ],
         rotSkyPos_deg=pa.repeat(0.0, num_visits),
+        observatory_code=pa.repeat("X05", num_visits),
     )
 
 
@@ -123,7 +125,7 @@ def observatory():
         fov=FieldOfView(
             camera_model="circle",
             circle_radius=1.75,
-            fill_factor=0.9,
+            fill_factor=1.0,  # Normally 0.9 but we set to 1.0 for testing
         ),
         simulation=Simulation(ang_fov=2.06, fov_buffer=0.2),
     )
@@ -168,3 +170,21 @@ def test_write_sorcha_inputs(small_bodies, pointings, observatory):
         assert paths["config"] == f"{temp_dir}/configuration.ini"
         for k, v in paths.items():
             assert os.path.exists(v)
+
+
+def test_sorcha(small_bodies, pointings, observatory):
+    # Test that _run_sorcha runs without error and returns least 6 observations
+
+    with tempfile.TemporaryDirectory() as out_dir:
+        sorcha_outputs, sorcha_stats = sorcha(
+            out_dir, small_bodies, pointings, observatory, randomization=False
+        )
+        assert len(sorcha_outputs) == 6
+        assert pc.all(
+            pc.equal(
+                sorcha_outputs.FieldID,
+                pa.array(["exp00", "exp01", "exp02", "exp03", "exp04", "exp05"]),
+            )
+        )
+
+        assert len(sorcha_stats) == 6  # One row for each object and filter
