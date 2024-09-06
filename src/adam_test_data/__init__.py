@@ -1,2 +1,2 @@
 # ruff: noqa: F401
-from .main import write_sorcha_inputs
+from .main import run_sorcha, write_sorcha_inputs
