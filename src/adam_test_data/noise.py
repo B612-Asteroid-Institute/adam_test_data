@@ -1,10 +1,15 @@
+import multiprocessing as mp
 from typing import Optional
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import quivr as qv
+import ray
+from adam_core.propagator.utils import _iterate_chunk_indices
+from adam_core.ray_cluster import initialize_use_ray
 from scipy.stats import skewnorm
 
 from .observatory import Observatory
@@ -229,3 +234,152 @@ def add_noise(
         noise = qv.concatenate([noise, noise_pointing])
 
     return noise
+
+
+def noise_worker(
+    pointing_ids: pa.Array,
+    pointing_ids_indices: tuple[int, int],
+    pointings: Pointings,
+    observatory: Observatory,
+    density: float,
+    seed: Optional[int] = None,
+):
+    """
+    Generate noise for a subset of the pointings.
+
+    Parameters
+    ----------
+    pointing_ids : pa.Array
+        The observation IDs of the pointings.
+    pointing_ids_indices : tuple[int, int]
+        The indices of the subset of pointings to process.
+    pointings : Pointings
+        The pointings to generate noise detections for.
+    observatory : Observatory
+        The observatory that took the pointings.
+    density : float
+        The density of detections per square degree.
+    seed : int, optional
+        The seed for the random number generator.
+
+    Returns
+    -------
+    noise_detections : Noise
+        The noise detections.
+    """
+    pointing_ids = pointing_ids[pointing_ids_indices[0] : pointing_ids_indices[1]]
+    pointings_chunk = pointings.apply_mask(
+        pc.is_in(
+            pointings.observationId,
+            pointing_ids,
+        )
+    )
+
+    return add_noise(
+        pointings_chunk,
+        observatory,
+        density,
+        seed=seed,
+    )
+
+
+noise_worker_remote = ray.remote(noise_worker)
+noise_worker_remote.options(num_cpus=1)
+
+
+def generate_noise(
+    pointings: Pointings,
+    observatory: Observatory,
+    density: float,
+    seed: Optional[int] = None,
+    chunk_size: int = 100,
+    max_processes: Optional[int] = 1,
+):
+    """
+    Generate noise detections for each pointing in pointings using the given observatory and density.
+
+    Parameters
+    ----------
+    pointings : Pointings
+        The pointings to generate noise detections for.
+    observatory : Observatory
+        The observatory that took the pointings.
+    density : float
+        The density of detections per square degree.
+    seed : int, optional
+        The seed for the random number generator.
+    chunk_size : int, optional
+        The size of the chunks to process.
+    max_processes : int, optional
+        The maximum number of processes to use. If None, all available CPUs will be used.
+
+    Returns
+    -------
+    noise_detections : Noise
+        The noise detections.
+
+    """
+    if max_processes is None:
+        max_processes = mp.cpu_count()
+
+    pointing_ids = pointings.observationId
+    noise_detections = Noise.empty()
+
+    use_ray = initialize_use_ray(max_processes)
+    if use_ray:
+
+        pointing_ids_ref = ray.put(pointing_ids)
+        pointings_ref = ray.put(pointings)
+        observatory_ref = ray.put(observatory)
+
+        futures = []
+        for pointing_ids_indices in _iterate_chunk_indices(pointing_ids, chunk_size):
+            futures.append(
+                noise_worker_remote.remote(
+                    pointing_ids_ref,
+                    pointing_ids_indices,
+                    pointings_ref,
+                    observatory_ref,
+                    density,
+                    seed=seed,
+                )
+            )
+
+            if len(futures) >= max_processes * 1.5:
+                finished, futures = ray.wait(futures, num_returns=1)
+
+                noise_detections_chunk = ray.get(finished[0])
+                noise_detections = qv.concatenate(
+                    [noise_detections, noise_detections_chunk]
+                )
+                if noise_detections.fragmented():
+                    noise_detections = qv.defragment(noise_detections)
+
+        while futures:
+            finished, futures = ray.wait(futures, num_returns=1)
+
+            noise_detections_chunk = ray.get(finished[0])
+            noise_detections = qv.concatenate(
+                [noise_detections, noise_detections_chunk]
+            )
+            if noise_detections.fragmented():
+                noise_detections = qv.defragment(noise_detections)
+
+    else:
+
+        for pointing_ids_indices in _iterate_chunk_indices(pointing_ids, chunk_size):
+            noise_detections_chunk = noise_worker(
+                pointing_ids,
+                pointing_ids_indices,
+                pointings,
+                observatory,
+                density,
+                seed=seed,
+            )
+            noise_detections = qv.concatenate(
+                [noise_detections, noise_detections_chunk]
+            )
+            if noise_detections.fragmented():
+                noise_detections = qv.defragment(noise_detections)
+
+    return noise_detections
