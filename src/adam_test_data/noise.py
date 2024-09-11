@@ -1,5 +1,7 @@
 from typing import Optional
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pyarrow as pa
 import quivr as qv
@@ -81,6 +83,7 @@ def magnitude_model(
     return mag, mag_err
 
 
+@jax.jit
 def identify_within_circle(
     ra: np.ndarray, dec: np.ndarray, center_ra: float, center_dec: float, radius: float
 ) -> np.ndarray:
@@ -106,43 +109,24 @@ def identify_within_circle(
         A boolean mask that selects the points within the circle.
     """
     # Convert the coordinates to Cartesian (on a unit sphere)
-    rad_ra = np.radians(ra)
-    rad_dec = np.radians(dec)
-    x = np.cos(rad_ra) * np.cos(rad_dec)
-    y = np.sin(rad_ra) * np.cos(rad_dec)
-    z = np.sin(rad_dec)
+    rad_ra = jnp.radians(ra)
+    rad_dec = jnp.radians(dec)
+    x = jnp.cos(rad_ra) * jnp.cos(rad_dec)
+    y = jnp.sin(rad_ra) * jnp.cos(rad_dec)
+    z = jnp.sin(rad_dec)
 
     # Convert the center to Cartesian
-    rad_center_ra = np.radians(center_ra)
-    rad_center_dec = np.radians(center_dec)
-    center_x = np.cos(rad_center_ra) * np.cos(rad_center_dec)
-    center_y = np.sin(rad_center_ra) * np.cos(rad_center_dec)
-    center_z = np.sin(rad_center_dec)
+    rad_center_ra = jnp.radians(center_ra)
+    rad_center_dec = jnp.radians(center_dec)
+    center_x = jnp.cos(rad_center_ra) * jnp.cos(rad_center_dec)
+    center_y = jnp.sin(rad_center_ra) * jnp.cos(rad_center_dec)
+    center_z = jnp.sin(rad_center_dec)
 
     # Calculate the angle between the points and the center
     # The cosine of the angle is equal to the dot product of the two vectors
-    angle = np.arccos(x * center_x + y * center_y + z * center_z)
+    cos_angle = x * center_x + y * center_y + z * center_z
 
-    return angle <= np.radians(radius)
-
-
-def fix_wrap_around(ra: np.ndarray) -> np.ndarray:
-    """
-    Adjust any RAs that are greater than 360 degrees or less than 0 degrees.
-
-    Parameters
-    ----------
-    ra : np.ndarray
-        The right ascensions to adjust.
-
-    Returns
-    -------
-    ra : np.ndarray
-        The adjusted right ascensions.
-    """
-    ra = np.where(ra >= 360, ra - 360, ra)
-    ra = np.where(ra < 0, ra + 360, ra)
-    return ra
+    return cos_angle >= jnp.cos(jnp.radians(radius))
 
 
 def add_noise(
@@ -189,34 +173,26 @@ def add_noise(
     mag_scale = rng.uniform(1.5, 3.0, n_pointings)
     mag_skewness = rng.uniform(-25, -5, n_pointings)
 
+    radius = observatory.fov.circle_radius
+    n_dets = int(4 * np.pi * (180**2 / np.pi**2) * density)
+
     for i, pointing in enumerate(pointings):
 
         ra = pointing.fieldRA_deg[0].as_py()
         dec = pointing.fieldDec_deg[0].as_py()
-        radius = observatory.fov.circle_radius
+        filter_i = pointing.filter[0].as_py()
 
-        # Calculate the box that contains the circle
-        ra_min = ra - radius / np.cos(np.radians(dec))
-        ra_max = ra + radius / np.cos(np.radians(dec))
-        dec_min = dec - radius
-        dec_max = dec + radius
-        dra = ra_max - ra_min
-        ddec = dec_max - dec_min
+        # Generate random detections on the whole sky
+        # as unit filter
+        rng = np.random.default_rng(seed=seed)
+        u = rng.random(n_dets)
+        v = rng.random(n_dets)
 
-        if dec_max > 90 or dec_min < -90:
-            # If we encounter this we will need to implement this
-            # with Cartesian coordinates instead of spherical coordinates
-            # Or implement great circle distance calculations in adam_core's
-            # SphericalCoordinates class
-            raise ValueError("The circular FOV is too close to the poles.")
+        ra_dets = 2 * np.pi * u
+        dec_dets = np.arccos(2 * v - 1) - np.pi / 2
 
-        # Calculate the number of points to generate
-        area = dra * ddec  # in square degrees
-        n_dets = int(area * density)
-
-        # Generate the detections
-        ra_dets = np.random.uniform(ra_min, ra_max, n_dets)
-        dec_dets = np.random.uniform(dec_min, dec_max, n_dets)
+        ra_dets = np.degrees(ra_dets)
+        dec_dets = np.degrees(dec_dets)
 
         # Calculate the magnitude and magnitude errors
         mag, mag_err = magnitude_model(
@@ -241,11 +217,8 @@ def add_noise(
         mag_err = mag_err[mask]
         astrometric_error_arcsec = astrometric_error_arcsec[mask]
 
-        # Now lets fix any wrap-around issues
-        ra_dets = fix_wrap_around(ra_dets)
-
         noise_pointing = Noise.from_kwargs(
-            FieldID=pa.repeat(pointing.observationId[0].as_py(), len(ra_dets)),
+            FieldID=pa.repeat(pointing.observationId[0], len(ra_dets)),
             RA_deg=ra_dets,
             Dec_deg=dec_dets,
             astrometricSigma_deg=astrometric_error_arcsec / 3600,
