@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from ..noise import fix_wrap_around, identify_within_circle, magnitude_model
 
@@ -7,13 +8,49 @@ def test_magnitude_model():
     # Test that magnitude_model returns the expected number of magnitudes and errors
     seed = 42
     n = 100
-    skewness = 0.5
-    scale = 0.1
+    skewness = -11
+    scale = 2.22
+    depth = 25
 
-    mag, mag_err = magnitude_model(n, 25, scale, skewness, seed)
+    mag, mag_err = magnitude_model(n, depth, scale, skewness, seed=seed)
     assert len(mag) == n
     assert len(mag_err) == n
     assert np.all(mag_err >= 0.01) and np.all(mag_err <= 0.3)
+
+
+def test_magnitude_model_brightness_limit():
+    # Test that magnitude_model returns the expected number of magnitudes and errors
+    seed = 42
+    n = 100
+    skewness = -11
+    scale = 2.22
+    depth = 25
+    brightness_limit = 21
+
+    mag, mag_err = magnitude_model(
+        n, depth, scale, skewness, brightness_limit=brightness_limit, seed=seed
+    )
+    assert len(mag) == n
+    assert len(mag_err) == n
+    assert np.all(mag >= brightness_limit)
+
+
+def test_magnitude_model_brightness_limit_raises():
+    # Test that magnitude_model returns the expected number of magnitudes and errors
+    seed = 42
+    n = 100
+    skewness = -11
+    scale = 2.22
+    depth = 25
+    brightness_limit = 30
+
+    with pytest.raises(
+        ValueError,
+        match="Could not sample magnitudes above the brightness limit after 10 attempts.",
+    ):
+        mag, mag_err = magnitude_model(
+            n, depth, scale, skewness, brightness_limit=brightness_limit, seed=seed
+        )
 
 
 def test_fix_wrap_around():
