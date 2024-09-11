@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from ..noise import fix_wrap_around, identify_within_circle, magnitude_model
+from ..noise import identify_within_circle, magnitude_model
 
 
 def test_magnitude_model():
@@ -51,13 +51,6 @@ def test_magnitude_model_brightness_limit_raises():
         mag, mag_err = magnitude_model(
             n, depth, scale, skewness, brightness_limit=brightness_limit, seed=seed
         )
-
-
-def test_fix_wrap_around():
-    # Test that fix_wrap_around correctly adjusts RAs that are greater than 360 degrees or less than 0 degrees
-    ra = np.array([0, 360, 361, -1, -2])
-    ra_expected = np.array([0, 0, 1, 359, 358])
-    np.testing.assert_array_equal(fix_wrap_around(ra), ra_expected)
 
 
 def test_identify_within_circle():
