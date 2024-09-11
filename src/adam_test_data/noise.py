@@ -79,9 +79,25 @@ def identify_within_circle(
     mask : np.ndarray
         A boolean mask that selects the points within the circle.
     """
-    return ((ra - center_ra) * np.cos(np.radians(center_dec))) ** 2 + (
-        dec - center_dec
-    ) ** 2 < radius**2
+    # Convert the coordinates to Cartesian (on a unit sphere)
+    rad_ra = np.radians(ra)
+    rad_dec = np.radians(dec)
+    x = np.cos(rad_ra) * np.cos(rad_dec)
+    y = np.sin(rad_ra) * np.cos(rad_dec)
+    z = np.sin(rad_dec)
+
+    # Convert the center to Cartesian
+    rad_center_ra = np.radians(center_ra)
+    rad_center_dec = np.radians(center_dec)
+    center_x = np.cos(rad_center_ra) * np.cos(rad_center_dec)
+    center_y = np.sin(rad_center_ra) * np.cos(rad_center_dec)
+    center_z = np.sin(rad_center_dec)
+
+    # Calculate the angle between the points and the center
+    # The cosine of the angle is equal to the dot product of the two vectors
+    angle = np.arccos(x * center_x + y * center_y + z * center_z)
+
+    return angle <= np.radians(radius)
 
 
 def fix_wrap_around(ra: np.ndarray) -> np.ndarray:
