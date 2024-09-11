@@ -20,7 +20,12 @@ class Noise(qv.Table):
 
 
 def magnitude_model(
-    n: int, depth: float, scale: float, skewness: float, seed: Optional[int] = None
+    n: int,
+    depth: float,
+    scale: float,
+    skewness: float,
+    brightness_limit: Optional[float] = None,
+    seed: Optional[int] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Simulate the distribution of magnitudes as a skewed normal distribution
@@ -37,6 +42,9 @@ def magnitude_model(
         The scale parameter of the skewed normal distribution.
     skewness : float
         The skewness parameter of the skewed normal distribution.
+    brightness_limit : float, optional
+        The brightness limit of the pointing. Any magnitudes sampled below this limit will be
+        resampled until they are above the limit.
     seed : int
         The seed for the random number generator.
 
@@ -46,11 +54,29 @@ def magnitude_model(
         The simulated magnitudes.
     mag_err : np.ndarray
         The simulated magnitude errors.
+
+    Raises
+    ------
+    ValueError : When the magnitudes cannot be sampled above the brightness limit after 10 attempts.
     """
     rng = np.random.default_rng(seed)
     skewnorm_random = skewnorm
     skewnorm_random.random_state = rng
     mag = skewnorm_random.rvs(a=skewness, loc=depth, scale=scale, size=n)
+    if brightness_limit is not None:
+        i = 0
+        while np.any(mag < brightness_limit):
+            mask = mag < brightness_limit
+            mag[mask] = skewnorm_random.rvs(
+                a=skewness, loc=depth, scale=scale, size=mask.sum()
+            )
+
+            i += 1
+            if i == 10:
+                raise ValueError(
+                    "Could not sample magnitudes above the brightness limit after 10 attempts."
+                )
+
     mag_err = rng.uniform(0.01, 0.3, n)
     return mag, mag_err
 
@@ -198,6 +224,7 @@ def add_noise(
             pointing.fieldFiveSigmaDepth_mag[0].as_py(),
             mag_scale[i],
             mag_skewness[i],
+            brightness_limit=bright_limits[filter_i],
         )
 
         # Calculate the astrometric error (here we use the seeing FWHM of the pointing)
@@ -206,9 +233,6 @@ def add_noise(
 
         # Filter the detections that are within the circular FOV
         mask = identify_within_circle(ra_dets, dec_dets, ra, dec, radius)
-
-        # Filter the detections that are brighter than the brightness limit
-        mask = mask & (mag > bright_limits[pointing.filter[0].as_py()])
 
         # Apply the mask
         ra_dets = ra_dets[mask]
