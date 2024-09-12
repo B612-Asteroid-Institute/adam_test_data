@@ -22,7 +22,7 @@ class Pointings(qv.Table):
     # Additional columns which may be useful
     observatory_code = qv.LargeStringColumn(nullable=True)
 
-    def to_sql(self, con: sql.Connection, table_name: str = "pointings"):
+    def to_sql(self, con: sql.Connection, table_name: str = "pointings") -> None:
         """
         Save the table to an SQLite database for sorcha to use.
 

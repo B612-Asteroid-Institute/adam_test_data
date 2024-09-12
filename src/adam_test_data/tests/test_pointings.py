@@ -1,5 +1,6 @@
 import sqlite3 as sql
 import tempfile
+from typing import Generator
 
 import pytest
 
@@ -7,7 +8,7 @@ from ..pointings import Pointings
 
 
 @pytest.fixture
-def pointings():
+def pointings() -> Pointings:
 
     pointings = Pointings.from_kwargs(
         observationId=[
@@ -76,13 +77,13 @@ def pointings():
 
 
 @pytest.fixture
-def pointings_db():
+def pointings_db() -> Generator[str, None, None]:
     temp_db = tempfile.NamedTemporaryFile(suffix=".db")
     temp_db.close()
     yield temp_db.name
 
 
-def test_pointings_to_from_sql(pointings, pointings_db):
+def test_pointings_to_from_sql(pointings: Pointings, pointings_db: str) -> None:
     # Test that we can save and load the pointings table to and from an SQLite database.
     con = sql.connect(pointings_db)
     pointings.to_sql(con, table_name="test_pointings")

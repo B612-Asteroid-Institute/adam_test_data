@@ -50,7 +50,7 @@ dev = [
 ]
 
 [tool.pdm.scripts]
-check = {composite = ["lint", "typecheck", "test"]}
+check = {composite = ["lint", "typecheck", "coverage"]}
 format = { composite = ["black ./src/adam_test_data", "isort ./src/adam_test_data"]}
 lint = { composite = ["ruff check ./src/adam_test_data", "black --check ./src/adam_test_data", "isort --check-only ./src/adam_test_data"] }
 fix = "ruff ./src/adam_test_data --fix"
@@ -58,7 +58,7 @@ typecheck = "mypy --strict ./src/adam_test_data"
 test = "pytest --benchmark-disable {args}"
 doctest = "pytest --doctest-plus --doctest-only"
 benchmark = "pytest --benchmark-only"
-coverage = "pytest --cov=src --cov-report=xml"
+coverage = "pytest --benchmark-disable --cov=src --cov-report=xml"
 
 [tool.black]
 line-length = 88

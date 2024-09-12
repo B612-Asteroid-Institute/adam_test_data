@@ -33,6 +33,8 @@ jobs:
           pip install ".[dev]"
       - name: Lint
         run: pdm run lint
+      - name: Type check
+        run: pdm run typecheck
       - name: Test with coverage
         run: pdm run coverage
       - name: Coverage report to coveralls

@@ -4,13 +4,13 @@ from typing import Literal, Optional
 
 @dataclass
 class FieldOfView:
-    camera_model: str = Literal["footprint", "circle"]
+    camera_model: Literal["footprint", "circle"]
     footprint_path: Optional[str] = None
     fill_factor: Optional[float] = None
     circle_radius: Optional[float] = None
     footprint_edge_threshold: Optional[float] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.camera_model = self.camera_model
 
         if self.camera_model == "footprint":
@@ -51,7 +51,7 @@ class Simulation:
     picket: Optional[int] = 1
     healpix_order: Optional[int] = 6
 
-    def to_string(self, observatory_code) -> str:
+    def to_string(self, observatory_code: str) -> str:
         return f"""[SIMULATION]
 ar_ang_fov = {self.ang_fov}
 ar_fov_buffer = {self.fov_buffer}

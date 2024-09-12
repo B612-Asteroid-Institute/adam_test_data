@@ -8,7 +8,7 @@ from ..observatory import (
 )
 
 
-def test_FieldOfView_to_string():
+def test_FieldOfView_to_string() -> None:
     # Test that FieldOfView.to_string returns the correct string representation of the object.
     # These strings are used to create sorcha configuration files.
     fov = FieldOfView(camera_model="circle", fill_factor=0.5, circle_radius=1.0)
@@ -37,11 +37,11 @@ def test_FieldOfView_to_string():
     )
 
 
-def test_FieldOfView_raises():
+def test_FieldOfView_raises() -> None:
     # Test that FieldOfView raises the correct exceptions when invalid argument combinations
     # are passed.
     with pytest.raises(ValueError, match="Unknown camera model: unknown"):
-        FieldOfView(camera_model="unknown")
+        FieldOfView(camera_model="unknown")  # type: ignore
 
     with pytest.raises(
         ValueError, match="fill_factor is required for camera_model='circle'"
@@ -70,7 +70,7 @@ def test_FieldOfView_raises():
         )
 
 
-def test_Simulation_to_string():
+def test_Simulation_to_string() -> None:
     # Test that Simulation.to_string returns the correct string representation of the object.
     # These strings are used to create sorcha configuration files.
     sim = Simulation(ang_fov=1.0, fov_buffer=0.1)
@@ -98,7 +98,7 @@ ar_healpix_order = 7"""
     )
 
 
-def test_observatory_to_sorcha_config():
+def test_observatory_to_sorcha_config() -> None:
 
     # Test that observatory_to_sorcha_config returns the correct string representation of the
     # object. These strings are used to create sorcha configuration files.
@@ -167,7 +167,7 @@ trailing_losses_on = True
     )
 
 
-def test_observatory_to_sorcha_config_raises():
+def test_observatory_to_sorcha_config_raises() -> None:
     # Test that observatory_to_sorcha_config raises the correct exceptions when invalid argument
     # combinations are passed.
 

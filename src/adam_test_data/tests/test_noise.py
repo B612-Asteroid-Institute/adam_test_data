@@ -4,7 +4,7 @@ import pytest
 from ..noise import identify_within_circle, magnitude_model
 
 
-def test_magnitude_model():
+def test_magnitude_model() -> None:
     # Test that magnitude_model returns the expected number of magnitudes and errors
     seed = 42
     n = 100
@@ -18,7 +18,7 @@ def test_magnitude_model():
     assert np.all(mag_err >= 0.01) and np.all(mag_err <= 0.3)
 
 
-def test_magnitude_model_brightness_limit():
+def test_magnitude_model_brightness_limit() -> None:
     # Test that magnitude_model returns the expected number of magnitudes and errors
     seed = 42
     n = 100
@@ -35,7 +35,7 @@ def test_magnitude_model_brightness_limit():
     assert np.all(mag >= brightness_limit)
 
 
-def test_magnitude_model_brightness_limit_raises():
+def test_magnitude_model_brightness_limit_raises() -> None:
     # Test that magnitude_model returns the expected number of magnitudes and errors
     seed = 42
     n = 100
@@ -53,7 +53,7 @@ def test_magnitude_model_brightness_limit_raises():
         )
 
 
-def test_identify_within_circle():
+def test_identify_within_circle() -> None:
     # Test that identify within circle can correctly handle a simple circle near the equator
     ra = np.array([30.0, 34.0, 32.0, 32.0, 32.0])
     dec = np.array([0.0, 0.0, 2.0, -2.0, 0.0])
