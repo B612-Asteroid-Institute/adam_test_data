@@ -9,7 +9,7 @@ from ..s3m import load_S3M
 
 
 @pytest.fixture
-def S0():
+def S0() -> str:
     # head s0.s3m
     return """!! S3M version 09.05.15
 !! S3MID FORMAT q e i Omega argperi t_p H t_0 INDEX N_PAR MOID COMPCODE
@@ -25,7 +25,7 @@ S0000008a  COM 0.395790237647 0.628052442921 32.902888227255 135.381871436121 32
 
 
 @pytest.fixture
-def S1():
+def S1() -> str:
     # head s0_00.s3m
     return """!!S3M V.09.06.15
 !!OID FORMAT q e i node argperi t_p H t_0 INDEX N_PAR MOID COMPCODE
@@ -41,7 +41,7 @@ S1000009a  COM   2.18691   0.15787  14.26404  63.83526 171.52690  51866.56387 10
 
 
 @pytest.fixture
-def St5():
+def St5() -> str:
     # head St5.s3m
     return """!! S3M version 09.06.15
 !! S3MID FORMAT q e i Omega argperi t_p H t_0 INDEX N_PAR MOID COMPCODE
@@ -56,7 +56,7 @@ St500007a  COM   4.75376   0.07996  12.42690 178.47400 264.07675  47230.72577  7
 """
 
 
-def test_load_S3M(S0, S1, St5):
+def test_load_S3M(S0: str, S1: str, St5: str) -> None:
 
     with tempfile.TemporaryDirectory() as s3m_dir:
 

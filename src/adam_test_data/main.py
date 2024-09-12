@@ -306,6 +306,8 @@ def sorcha(
             f"Sorcha failed with the following error:\n{results.stderr.decode()}"
         )
     else:
+
+        sorcha_outputs: Union[SorchaOutputBasic, SorchaOutputAll]
         if output_columns == "basic":
             sorcha_outputs = SorchaOutputBasic.from_csv(f"{output_dir}/{tag}.csv")
         else:
@@ -443,6 +445,7 @@ def run_sorcha(
 
     orbit_ids = small_bodies.orbits.orbit_id
 
+    sorcha_outputs: Union[SorchaOutputBasic, SorchaOutputAll]
     if output_columns == "basic":
         sorcha_outputs = SorchaOutputBasic.empty()
     else:

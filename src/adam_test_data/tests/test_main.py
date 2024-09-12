@@ -1,5 +1,6 @@
 import os
 import tempfile
+from typing import Union
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -9,14 +10,14 @@ from adam_core.coordinates.origin import Origin
 from adam_core.orbits import Orbits
 from adam_core.time import Timestamp
 
-from ..main import sorcha, write_sorcha_inputs
+from ..main import SorchaOutputAll, SorchaOutputBasic, sorcha, write_sorcha_inputs
 from ..observatory import FieldOfView, Observatory, Simulation
 from ..pointings import Pointings
 from ..populations import PhotometricProperties, SmallBodies
 
 
 @pytest.fixture
-def small_bodies():
+def small_bodies() -> SmallBodies:
     # Simple MBA pulled from SBDB using adam_core:
     # from adam_core.orbits.query import query_sbdb
     # orbits = query_sbdb(["2013 RR165"])
@@ -44,7 +45,7 @@ def small_bodies():
 
 
 @pytest.fixture
-def pointings():
+def pointings() -> Pointings:
     # Generated using adam_core:
     # import numpy as np
     # from astropy import units as u
@@ -114,7 +115,7 @@ def pointings():
 
 
 @pytest.fixture
-def observatory():
+def observatory() -> Observatory:
     # Rubin Observatory's LSST modeled with a circular footprint
     # From: https://sorcha.readthedocs.io/en/latest/configfiles.html#rubin-circular-approximation
     return Observatory(
@@ -131,7 +132,9 @@ def observatory():
     )
 
 
-def test_write_sorcha_inputs(small_bodies, pointings, observatory):
+def test_write_sorcha_inputs(
+    small_bodies: SmallBodies, pointings: Pointings, observatory: Observatory
+) -> None:
     # Test that write_sorcha_inputs writes the expected files to the expected locations
     # The actual contents of the files are not checked here but in different tests
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -172,19 +175,28 @@ def test_write_sorcha_inputs(small_bodies, pointings, observatory):
             assert os.path.exists(v)
 
 
-def test_sorcha(small_bodies, pointings, observatory):
+def test_sorcha(
+    small_bodies: SmallBodies, pointings: Pointings, observatory: Observatory
+) -> None:
     # Test that _run_sorcha runs without error and returns least 6 observations
 
     with tempfile.TemporaryDirectory() as out_dir:
+        sorcha_outputs: Union[SorchaOutputAll, SorchaOutputBasic]
         sorcha_outputs, sorcha_stats = sorcha(
-            out_dir, small_bodies, pointings, observatory, randomization=False
+            out_dir,
+            small_bodies,
+            pointings,
+            observatory,
+            randomization=False,
+            output_columns="all",
         )
         assert len(sorcha_outputs) == 6
-        assert pc.all(
-            pc.equal(
-                sorcha_outputs.FieldID,
-                pa.array(["exp00", "exp01", "exp02", "exp03", "exp04", "exp05"]),
+        if isinstance(sorcha_outputs, SorchaOutputAll):
+            assert pc.all(
+                pc.equal(
+                    sorcha_outputs.FieldID,
+                    pa.array(["exp00", "exp01", "exp02", "exp03", "exp04", "exp05"]),
+                )
             )
-        )
 
         assert len(sorcha_stats) == 6  # One row for each object and filter

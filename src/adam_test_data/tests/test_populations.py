@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -13,7 +15,7 @@ from ..populations import (
 )
 
 
-def test_photometric_properties_to_sorcha_dataframe():
+def test_photometric_properties_to_sorcha_dataframe() -> None:
     # Test that that the photometric properties are correctly written to a Sorcha-compatible dataframe.
     object_ids = ["1", "2", "3"]
     H_r = [20.0, 21.0, 22.0]
@@ -52,7 +54,7 @@ def test_photometric_properties_to_sorcha_dataframe():
 
 
 @pytest.fixture
-def orbits():
+def orbits() -> Orbits:
     object_ids = ["1", "2", "3"]
     keplerian_elements = KeplerianCoordinates.from_kwargs(
         a=[1.3, 2.0, 5.0],
@@ -79,7 +81,9 @@ def orbits():
 
 
 @pytest.mark.parametrize("element_type", ["cartesian", "keplerian", "cometary"])
-def test_orbits_to_sorcha_dataframe(orbits, element_type):
+def test_orbits_to_sorcha_dataframe(
+    orbits: Orbits, element_type: Literal["cartesian", "keplerian", "cometary"]
+) -> None:
     # Test that the orbits are correctly written to a Sorcha-compatible dataframe.
 
     if element_type == "cartesian":

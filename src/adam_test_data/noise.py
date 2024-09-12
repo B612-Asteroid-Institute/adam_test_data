@@ -4,12 +4,14 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing as npt
 import pyarrow as pa
 import pyarrow.compute as pc
 import quivr as qv
 import ray
 from adam_core.propagator.utils import _iterate_chunk_indices
 from adam_core.ray_cluster import initialize_use_ray
+from jax import Array
 from scipy.stats import skewnorm
 
 from .observatory import Observatory
@@ -33,7 +35,7 @@ def magnitude_model(
     skewness: float,
     brightness_limit: Optional[float] = None,
     seed: Optional[int] = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """
     Simulate the distribution of magnitudes as a skewed normal distribution
     with mean parameter equal to the five-sigma depth. This was modeled after looking at exposures
@@ -90,8 +92,12 @@ def magnitude_model(
 
 @jax.jit
 def identify_within_circle(
-    ra: np.ndarray, dec: np.ndarray, center_ra: float, center_dec: float, radius: float
-) -> np.ndarray:
+    ra: npt.NDArray[np.float64],
+    dec: npt.NDArray[np.float64],
+    center_ra: float,
+    center_dec: float,
+    radius: float,
+) -> Array:
     """
     Identify the points that are within a circle of radius `radius` centered at `center_ra`, `center_dec`.
 
@@ -110,7 +116,7 @@ def identify_within_circle(
 
     Returns
     -------
-    mask : np.ndarray
+    mask : jnp.ndarray
         A boolean mask that selects the points within the circle.
     """
     # Convert the coordinates to Cartesian (on a unit sphere)
@@ -243,7 +249,7 @@ def noise_worker(
     observatory: Observatory,
     density: float,
     seed: Optional[int] = None,
-):
+) -> Noise:
     """
     Generate noise for a subset of the pointings.
 
@@ -294,7 +300,7 @@ def generate_noise(
     seed: Optional[int] = None,
     chunk_size: int = 100,
     max_processes: Optional[int] = 1,
-):
+) -> Noise:
     """
     Generate noise detections for each pointing in pointings using the given observatory and density.
 
@@ -317,7 +323,6 @@ def generate_noise(
     -------
     noise_detections : Noise
         The noise detections.
-
     """
     if max_processes is None:
         max_processes = mp.cpu_count()
