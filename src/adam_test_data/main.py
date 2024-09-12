@@ -15,8 +15,8 @@ from .observatory import Observatory, observatory_to_sorcha_config
 from .pointings import Pointings
 from .populations import (
     SmallBodies,
-    orbits_to_sorcha_dataframe,
-    photometric_properties_to_sorcha_dataframe,
+    orbits_to_sorcha_table,
+    photometric_properties_to_sorcha_table,
 )
 
 
@@ -177,8 +177,8 @@ def write_sorcha_inputs(
     os.makedirs(output_dir, exist_ok=True)
 
     # Write orbits and photometric properties to the corresponding file types
-    orbits_df = orbits_to_sorcha_dataframe(small_bodies.orbits, element_type)
-    properties_df = photometric_properties_to_sorcha_dataframe(
+    orbits_table = orbits_to_sorcha_table(small_bodies.orbits, element_type)
+    properties_table = photometric_properties_to_sorcha_table(
         small_bodies.properties, small_bodies.orbits.object_id, observatory.main_filter
     )
 
@@ -186,14 +186,81 @@ def write_sorcha_inputs(
     properties_file = os.path.join(output_dir, properties_file_name)
 
     if format == "csv":
-        sep = ","
+        delimiter = ","
     elif format == "whitespace":
-        sep = " "
+        delimiter = " "
     else:
         raise ValueError("format must be either 'csv' or 'whitespace'")
 
-    orbits_df.to_csv(orbit_file, index=False, sep=sep, float_format="%.15f")
-    properties_df.to_csv(properties_file, index=False, sep=sep, float_format="%.15f")
+    # Normally, it should be as easy as this:
+    # pa.csv.write_csv(
+    #     orbits_table,
+    #     orbit_file,
+    #     write_options=pa.csv.WriteOptions(
+    #         include_header=True, delimiter=delimiter, quoting_style="none"
+    #     ),
+    # )
+    # pa.csv.write_csv(
+    #     properties_table,
+    #     properties_file,
+    #     write_options=pa.csv.WriteOptions(
+    #         include_header=True,
+    #         delimiter=delimiter,
+    #         quoting_style="none",
+    #     ),
+    # )
+    # But sorcha doesn't know how to handle quotes in the header
+    # and the quoting_style="none" only applies to the row data and
+    # not the header. That is, the header names will remain surrounded
+    # by double quotes.
+    # See: https://github.com/apache/arrow/issues/41239
+
+    # Instead we write the CSVs to a string buffer
+    # and then strip the quotes from the header.
+    #
+    # Nevermind, this also doesn't work because object IDs can have
+    # "structural characters". Here is an example error if you
+    # set quoting_style="none":
+    # CSV values may not contain structural characters
+    # if quoting style is "None". See RFC4180. Invalid value: (2013 RR165)
+    #
+    # Furthermore, sorcha can't handle quotes in the data either...
+    # Instead we use the "needed" quoting style which adds quotes to the
+    # row data and the header. We then strip the quotes from everything with
+    # a replace call.
+    with pa.BufferOutputStream() as stream:
+        pa.csv.write_csv(
+            orbits_table,
+            stream,
+            write_options=pa.csv.WriteOptions(
+                include_header=True, delimiter=delimiter, quoting_style="needed"
+            ),
+        )
+        orbits_csv = stream.getvalue().to_pybytes().decode("utf-8")
+
+        # Strip the quotes from the header and body
+        orbits_csv = orbits_csv.replace('"', "")
+
+        with open(orbit_file, "w") as f:
+            f.write(orbits_csv)
+
+    with pa.BufferOutputStream() as stream:
+        pa.csv.write_csv(
+            properties_table,
+            stream,
+            write_options=pa.csv.WriteOptions(
+                include_header=True,
+                delimiter=delimiter,
+                quoting_style="needed",
+            ),
+        )
+        properties_csv = stream.getvalue().to_pybytes().decode("utf-8")
+
+        # Strip the quotes from the header and body
+        properties_csv = properties_csv.replace('"', "")
+
+        with open(properties_file, "w") as f:
+            f.write(properties_csv)
 
     paths["orbits"] = orbit_file
     paths["photometric_properties"] = properties_file

@@ -12,7 +12,6 @@ requires-python = ">=3.11,<4.0"
 dependencies = [
     "adam_core==0.2.2",
     "jax",
-    "pandas",
     "ray",
     "sorcha==0.9.1",
     "quivr==0.7.3a1",

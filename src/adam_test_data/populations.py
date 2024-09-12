@@ -1,7 +1,7 @@
 from typing import Literal
 
-import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import quivr as qv
 from adam_core.orbits import Orbits
 
@@ -24,9 +24,9 @@ class SmallBodies(qv.Table):
     properties = PhotometricProperties.as_column()
 
 
-def photometric_properties_to_sorcha_dataframe(
+def photometric_properties_to_sorcha_table(
     properties: PhotometricProperties, object_ids: pa.Array, main_filter: str
-) -> pd.DataFrame:
+) -> pa.Table:
     """
     Write photometric properties to a Sorcha-compatible dataframe. This dataframe
     can be either serialized to a CSV or a white-space separated text file for sorcha to
@@ -47,31 +47,36 @@ def photometric_properties_to_sorcha_dataframe(
 
     Returns
     -------
-    df : pd.DataFrame
-        The orbits in a pandas DataFrame that can be serialized
+    table : pa.Table
+        The photometric properties in a pyarrow Table that can be serialized
         to a CSV or a white-space separated text file.
     """
-    df = properties.to_dataframe()
-    df.insert(0, "ObjID", object_ids)
+    table = properties.table
+    table = table.add_column(0, "ObjID", object_ids)
 
     # Map the columns to the correct filter. So all _mf colors
     # will be renamed to {filter}-{main_filter}. The absolute magnitude
     # will be renamed to H_{main_filter} (note an underscore instead of a dash)
-    columns_map = {}
-    for c in df.columns:
+    column_names = table.column_names
+    new_names = []
+    for c in column_names:
         if c.endswith("_mf"):
             if c == "H_mf":
-                columns_map[c] = f"H_{main_filter}"
+                new_name = f"H_{main_filter}"
             else:
-                columns_map[c] = c.replace("_mf", f"-{main_filter}")
+                new_name = c.replace("_mf", f"-{main_filter}")
+        else:
+            new_name = c
 
-    df.rename(columns=columns_map, inplace=True)
-    return df
+        new_names.append(new_name)
+
+    table = table.rename_columns(new_names)
+    return table
 
 
-def orbits_to_sorcha_dataframe(
+def orbits_to_sorcha_table(
     orbits: Orbits, element_type: Literal["cartesian", "keplerian", "cometary"]
-) -> pd.DataFrame:
+) -> pa.Table:
     """
     Write orbits to a Sorcha-compatible dataframe. This dataframe
     can be either serialized to a CSV or a white-space separated text file for sorcha to
@@ -88,64 +93,38 @@ def orbits_to_sorcha_dataframe(
 
     Returns
     -------
-    df : pd.DataFrame
-        The orbits in a pandas DataFrame that can be serialized
+    table : pa.Table
+        The orbits in a pyarrow Table that can be serialized
         to a CSV or a white-space separated text file.
     """
     if element_type == "cartesian":
-        df = orbits.coordinates.to_dataframe()
-        df.rename(
-            columns={
-                "x": "x",
-                "y": "y",
-                "z": "z",
-                "vx": "xdot",
-                "vy": "ydot",
-                "vz": "zdot",
-            },
-            inplace=True,
-        )
+        table = orbits.coordinates.table
+        table = table.drop_columns(["time", "covariance", "origin"])
+        table = table.rename_columns(["x", "y", "z", "xdot", "ydot", "zdot"])
         format = "CART"
 
     elif element_type == "keplerian":
-        df = orbits.coordinates.to_keplerian().to_dataframe()
-        df.rename(
-            columns={
-                "a": "a",
-                "e": "e",
-                "i": "inc",
-                "raan": "node",
-                "ap": "argPeri",
-                "m": "ma",
-            },
-            inplace=True,
-        )
+        table = orbits.coordinates.to_keplerian().table
+        table = table.drop_columns(["time", "covariance", "origin"])
+        table = table.rename_columns(["a", "e", "inc", "node", "argPeri", "ma"])
         format = "KEP"
 
     elif element_type == "cometary":
-        df = orbits.coordinates.to_cometary().to_dataframe()
-        df.rename(
-            columns={
-                "q": "q",
-                "e": "e",
-                "i": "inc",
-                "raan": "node",
-                "ap": "argPeri",
-                "tp": "t_p_MJD_TDB",
-            },
-            inplace=True,
+        table = orbits.coordinates.to_cometary().table
+        table = table.drop_columns(["time", "covariance", "origin"])
+        table = table.rename_columns(
+            ["q", "e", "inc", "node", "argPeri", "t_p_MJD_TDB"]
         )
         format = "COM"
-
     else:
         raise ValueError(f"Unknown element type: {element_type}")
 
-    df.insert(0, "ObjID", orbits.object_id)
-    df.insert(1, "FORMAT", format)
-    df.drop(
-        columns=["time.days", "time.nanos", "covariance.values", "origin.code"],
-        inplace=True,
+    table = table.add_column(0, "ObjID", orbits.object_id)
+    table = table.add_column(
+        1, "FORMAT", pc.cast(pa.repeat(format, len(orbits)), pa.large_string())
     )
-    df.insert(8, "epochMJD_TDB", orbits.coordinates.time.rescale("tdb").mjd())
+    table = table.add_column(
+        8, "epochMJD_TDB", orbits.coordinates.time.rescale("tdb").mjd()
+    )
 
-    return df
+    return table
