@@ -13,6 +13,7 @@ import ray
 from adam_core.propagator.utils import _iterate_chunk_indices
 from adam_core.ray_cluster import initialize_use_ray
 
+from .noise import generate_noise
 from .observatory import Observatory, observatory_to_sorcha_config
 from .pointings import Pointings
 from .populations import (
@@ -577,6 +578,9 @@ def run_sorcha(
         pointings_ref = ray.put(pointings)
         observatory_ref = ray.put(observatory)
 
+        chunk_size = min(int((len(small_bodies) / max_processes)), chunk_size)
+        chunk_size = max(1, int(chunk_size))
+
         futures = []
         for orbit_ids_indices in _iterate_chunk_indices(orbit_ids, chunk_size):
             futures.append(
@@ -661,3 +665,116 @@ def run_sorcha(
                 os.remove(sorcha_stats_chunk_file)
 
     return sorcha_output_file, sorcha_stats_file
+
+
+def generate_test_data(
+    output_dir: str,
+    small_bodies: SmallBodies,
+    pointings: Pointings,
+    observatory: Observatory,
+    noise_densities: Optional[list[float]] = None,
+    time_range: Optional[list[float]] = None,
+    tag: str = "sorcha",
+    overwrite: bool = True,
+    randomization: bool = True,
+    output_columns: Literal["basic", "all"] = "all",
+    seed: Optional[int] = None,
+    chunk_size: int = 1000,
+    max_processes: Optional[int] = 1,
+    cleanup: bool = True,
+) -> tuple[str, str, dict[str, str]]:
+    """
+    Generate a test data set optionally with noise observations.
+
+    Parameters
+    ----------
+    output_dir : str
+        The directory to write the test data to.
+    small_bodies : SmallBodies
+        The small body population to generate test data for.
+    pointings : Pointings
+        The pointings to generate test data for.
+    observatory : Observatory
+        The observatory to generate test data for.
+    noise_densities : Optional[list[float]], optional
+        The noise densities in detections per square degree to generate noise observations for, by default None.
+        Each noise density will generate a separate set of noise observations stored
+        in its own file.
+    time_range : list[float], optional
+        The time range to filter the pointings by, by default None.
+    tag : str, optional
+        The tag to use for the output files, by default "sorcha".
+    randomization : bool, optional
+        Ramdomize the photometry and astrometry using the calculated uncertainties.
+    output_columns : Literal["basic", "all"], optional
+        The columns to output in the Sorcha output, by default "all".
+    seed : Optional[int], optional
+        The seed to use for generating noise observations, by default None.
+    chunk_size : int, optional
+        The number of small bodies to process in each chunk, by default 1000.
+        Also, the number of pointings to process in each chunk when
+        generating noise observations.
+    max_processes : Optional[int], optional
+        The maximum number of processes to use, by default 1.
+    cleanup : bool, optional
+        Whether to delete the input files and output files after generating the test data.
+
+    Returns
+    -------
+    tuple[str, str, dict[str, str]]
+        The paths to the Sorcha output file, the statistics file, and the noise observation files.
+    """
+    # Lets filter the pointings here first
+    if time_range is not None:
+        pointings_filtered = pointings.apply_mask(
+            pc.and_(
+                pc.greater_equal(pointings.observationStartMJD_TAI, time_range[0]),
+                pc.less_equal(pointings.observationStartMJD_TAI, time_range[1]),
+            )
+        )
+    else:
+        pointings_filtered = pointings
+
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Run sorcha
+    sorcha_outputs_file, sorcha_stats_file = run_sorcha(
+        output_dir,
+        small_bodies,
+        pointings_filtered,
+        observatory,
+        time_range=time_range,
+        tag=tag,
+        overwrite=overwrite,
+        randomization=randomization,
+        output_columns=output_columns,
+        chunk_size=chunk_size,
+        max_processes=max_processes,
+        cleanup=cleanup,
+    )
+
+    noise_files: dict[str, str] = {}
+    if noise_densities is None:
+        return (
+            sorcha_outputs_file,
+            sorcha_stats_file,
+            noise_files,
+        )
+
+    # Now generate noise observations
+    for noise_density in noise_densities:
+        # Add noise to the observations
+        sorcha_outputs_noisy = generate_noise(
+            output_dir,
+            pointings_filtered,
+            observatory,
+            noise_density,
+            seed=seed,
+            chunk_size=chunk_size,
+            max_processes=max_processes,
+            cleanup=cleanup,
+        )
+        noise_files[f"{noise_density:.2f}"] = sorcha_outputs_noisy
+
+    return sorcha_outputs_file, sorcha_stats_file, noise_files
