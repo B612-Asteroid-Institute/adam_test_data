@@ -373,14 +373,25 @@ def sorcha(
             f"Sorcha failed with the following error:\n{results.stderr.decode()}"
         )
     else:
+        output_file = f"{output_dir}/{tag}.csv"
+        output_stats_file = f"{output_dir}/{stats_file}.csv"
 
-        sorcha_outputs: Union[SorchaOutputBasic, SorchaOutputAll]
+        sorcha_output_table: Union[Type[SorchaOutputBasic], Type[SorchaOutputAll]]
         if output_columns == "basic":
-            sorcha_outputs = SorchaOutputBasic.from_csv(f"{output_dir}/{tag}.csv")
+            sorcha_output_table = SorchaOutputBasic
         else:
-            sorcha_outputs = SorchaOutputAll.from_csv(f"{output_dir}/{tag}.csv")
+            sorcha_output_table = SorchaOutputAll
 
-        sorcha_stats = SorchaOutputStats.from_csv(f"{output_dir}/{stats_file}.csv")
+        # If no ephemerides are found by sorcha it will not generate
+        # a csv file for either the simulated observations or
+        # the statistics.
+        sorcha_outputs: Union[SorchaOutputBasic, SorchaOutputAll]
+        if os.path.exists(output_file):
+            sorcha_outputs = sorcha_output_table.from_csv(output_file)
+            sorcha_stats = SorchaOutputStats.from_csv(output_stats_file)
+        else:
+            sorcha_outputs = sorcha_output_table.empty()
+            sorcha_stats = SorchaOutputStats.empty()
 
     return sorcha_outputs, sorcha_stats
 
