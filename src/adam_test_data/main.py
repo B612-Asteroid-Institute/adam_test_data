@@ -1,5 +1,6 @@
 import multiprocessing as mp
 import os
+import shutil
 import sqlite3 as sql
 import subprocess
 from typing import Literal, Optional, Type, Union
@@ -160,7 +161,7 @@ def write_sorcha_inputs(
     sorcha_config_file_name : str, optional
         The name of the configuration file to write the observatory to, by default "config.ini".
     randomization : bool, optional
-        Ramdomize the photometry and astrometry using the calculated uncertainties, by default True.
+        Ramdomize the photometry and astrometry using the calculated uncertainties.
     output_columns : Literal["basic", "all"], optional
         The columns to output in the Sorcha output, by default "all".
 
@@ -300,6 +301,7 @@ def sorcha(
     overwrite: bool = True,
     randomization: bool = True,
     output_columns: Literal["basic", "all"] = "all",
+    cleanup: bool = True,
 ) -> tuple[Union[SorchaOutputBasic, SorchaOutputAll], SorchaOutputStats]:
     """
     Run sorcha on the given small bodies, pointings, and observatory.
@@ -321,9 +323,11 @@ def sorcha(
     overwrite : bool, optional
         Whether to overwrite existing files, by default False.
     randomization : bool, optional
-        Ramdomize the photometry and astrometry using the calculated uncertainties, by default True.
+        Ramdomize the photometry and astrometry using the calculated uncertainties.
     output_columns : Literal["basic", "all"], optional
         The columns to output in the Sorcha output, by default "all".
+    cleanup : bool, optional
+        Whether to delete the input files and output files after running Sorcha.
 
     Returns
     -------
@@ -394,6 +398,9 @@ def sorcha(
             sorcha_outputs = sorcha_output_table.empty()
             sorcha_stats = SorchaOutputStats.empty()
 
+    if cleanup:
+        shutil.rmtree(output_dir)
+
     return sorcha_outputs, sorcha_stats
 
 
@@ -435,7 +442,7 @@ def sorcha_worker(
     overwrite : bool, optional
         Whether to overwrite existing files, by default False.
     randomization : bool, optional
-        Ramdomize the photometry and astrometry using the calculated uncertainties, by default True.
+        Ramdomize the photometry and astrometry using the calculated uncertainties.
     output_columns : Literal["basic", "all"], optional
         The columns to output in the Sorcha output, by default "all".
 
@@ -464,6 +471,7 @@ def sorcha_worker(
         overwrite=overwrite,
         randomization=randomization,
         output_columns=output_columns,
+        cleanup=cleanup,
     )
 
     # Serialize the output tables to parquet and return the paths
@@ -492,6 +500,7 @@ def run_sorcha(
     output_columns: Literal["basic", "all"] = "all",
     chunk_size: int = 1000,
     max_processes: Optional[int] = 1,
+    cleanup: bool = True,
 ) -> tuple[str, str]:
     """
     Run sorcha on the given small bodies, pointings, and observatory.
@@ -513,13 +522,15 @@ def run_sorcha(
     overwrite : bool, optional
         Whether to overwrite existing files, by default False.
     randomization : bool, optional
-        Ramdomize the photometry and astrometry using the calculated uncertainties, by default True.
+        Ramdomize the photometry and astrometry using the calculated uncertainties.
     output_columns : Literal["basic", "all"], optional
         The columns to output in the Sorcha output, by default "all".
     chunk_size : int, optional
         The number of small bodies to process in each chunk, by default 1000.
     max_processes : Optional[int], optional
         The maximum number of processes to use, by default 1.
+    cleanup : bool, optional
+        Whether to delete the input files and output files after running Sorcha.
 
     Returns
     -------
@@ -581,6 +592,7 @@ def run_sorcha(
                     overwrite=overwrite,
                     randomization=randomization,
                     output_columns=output_columns,
+                    cleanup=cleanup,
                 )
             )
 
@@ -598,8 +610,9 @@ def run_sorcha(
                 sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
                 sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
 
-                os.remove(sorcha_outputs_chunk_file)
-                os.remove(sorcha_stats_chunk_file)
+                if cleanup:
+                    os.remove(sorcha_outputs_chunk_file)
+                    os.remove(sorcha_stats_chunk_file)
 
         while futures:
             finished, futures = ray.wait(futures, num_returns=1)
@@ -613,8 +626,9 @@ def run_sorcha(
             sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
             sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
 
-            os.remove(sorcha_outputs_chunk_file)
-            os.remove(sorcha_stats_chunk_file)
+            if cleanup:
+                os.remove(sorcha_outputs_chunk_file)
+                os.remove(sorcha_stats_chunk_file)
 
     else:
 
@@ -631,6 +645,7 @@ def run_sorcha(
                 overwrite=overwrite,
                 randomization=randomization,
                 output_columns=output_columns,
+                cleanup=cleanup,
             )
 
             sorcha_outputs_chunk = sorcha_outputs.from_parquet(
@@ -641,7 +656,8 @@ def run_sorcha(
             sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
             sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
 
-            os.remove(sorcha_outputs_chunk_file)
-            os.remove(sorcha_stats_chunk_file)
+            if cleanup:
+                os.remove(sorcha_outputs_chunk_file)
+                os.remove(sorcha_stats_chunk_file)
 
     return sorcha_output_file, sorcha_stats_file
