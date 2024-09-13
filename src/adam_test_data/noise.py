@@ -369,6 +369,9 @@ def generate_noise(
         pointings_ref = ray.put(pointings)
         observatory_ref = ray.put(observatory)
 
+        chunk_size = min(int((len(pointings) / max_processes)), chunk_size)
+        chunk_size = max(1, int(chunk_size))
+
         futures = []
         for pointing_ids_indices in _iterate_chunk_indices(pointing_ids, chunk_size):
             futures.append(
