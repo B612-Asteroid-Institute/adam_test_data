@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import os
 import warnings
 from typing import Optional
 
@@ -8,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import quivr as qv
 import ray
 from adam_core.propagator.utils import _iterate_chunk_indices
@@ -251,18 +253,21 @@ def add_noise(
 
 
 def noise_worker(
+    out_dir: str,
     pointing_ids: pa.Array,
     pointing_ids_indices: tuple[int, int],
     pointings: Pointings,
     observatory: Observatory,
     density: float,
     seed: Optional[int] = None,
-) -> Noise:
+) -> str:
     """
     Generate noise for a subset of the pointings.
 
     Parameters
     ----------
+    out_dir : str
+        The output directory where to save the noise detections.
     pointing_ids : pa.Array
         The observation IDs of the pointings.
     pointing_ids_indices : tuple[int, int]
@@ -278,8 +283,8 @@ def noise_worker(
 
     Returns
     -------
-    noise_detections : Noise
-        The noise detections.
+    noise_file : str
+        The path to the saved noise detections.
     """
     pointing_ids = pointing_ids[pointing_ids_indices[0] : pointing_ids_indices[1]]
     pointings_chunk = pointings.apply_mask(
@@ -289,12 +294,19 @@ def noise_worker(
         )
     )
 
-    return add_noise(
+    noise = add_noise(
         pointings_chunk,
         observatory,
         density,
         seed=seed,
     )
+
+    noise_file = os.path.join(
+        out_dir,
+        f"noise_{pointing_ids_indices[0]:08d}_{pointing_ids_indices[1]:08d}.parquet",
+    )
+    noise.to_parquet(noise_file)
+    return noise_file
 
 
 noise_worker_remote = ray.remote(noise_worker)
@@ -302,13 +314,14 @@ noise_worker_remote.options(num_cpus=1)
 
 
 def generate_noise(
+    output_dir: str,
     pointings: Pointings,
     observatory: Observatory,
     density: float,
     seed: Optional[int] = None,
     chunk_size: int = 100,
     max_processes: Optional[int] = 1,
-) -> Noise:
+) -> str:
     """
     Generate noise detections for each pointing in pointings using the given observatory and density.
 
@@ -329,14 +342,21 @@ def generate_noise(
 
     Returns
     -------
-    noise_detections : Noise
-        The noise detections.
+    noise_file : str
+        The path to the saved noise detections.
     """
     if max_processes is None:
         max_processes = mp.cpu_count()
 
     pointing_ids = pointings.observationId
     noise_detections = Noise.empty()
+
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    noise_file = os.path.join(output_dir, f"noise_{density:.3f}.parquet")
+    noise_detections.to_parquet(noise_file)
+    noise_file_writer = pq.ParquetWriter(noise_file, Noise.schema)
 
     use_ray = initialize_use_ray(max_processes)
     if use_ray:
@@ -349,6 +369,7 @@ def generate_noise(
         for pointing_ids_indices in _iterate_chunk_indices(pointing_ids, chunk_size):
             futures.append(
                 noise_worker_remote.remote(
+                    output_dir,
                     pointing_ids_ref,
                     pointing_ids_indices,
                     pointings_ref,
@@ -361,27 +382,26 @@ def generate_noise(
             if len(futures) >= max_processes * 1.5:
                 finished, futures = ray.wait(futures, num_returns=1)
 
-                noise_detections_chunk = ray.get(finished[0])
-                noise_detections = qv.concatenate(
-                    [noise_detections, noise_detections_chunk]
-                )
-                if noise_detections.fragmented():
-                    noise_detections = qv.defragment(noise_detections)
+                noise_detections_chunk_file = ray.get(finished[0])
+                noise_detections_chunk = Noise.from_parquet(noise_detections_chunk_file)
+                noise_file_writer.write_table(noise_detections_chunk.table)
+
+                os.remove(noise_detections_chunk_file)
 
         while futures:
             finished, futures = ray.wait(futures, num_returns=1)
 
-            noise_detections_chunk = ray.get(finished[0])
-            noise_detections = qv.concatenate(
-                [noise_detections, noise_detections_chunk]
-            )
-            if noise_detections.fragmented():
-                noise_detections = qv.defragment(noise_detections)
+            noise_detections_chunk_file = ray.get(finished[0])
+            noise_detections_chunk = Noise.from_parquet(noise_detections_chunk_file)
+            noise_file_writer.write_table(noise_detections_chunk.table)
+
+            os.remove(noise_detections_chunk_file)
 
     else:
 
         for pointing_ids_indices in _iterate_chunk_indices(pointing_ids, chunk_size):
-            noise_detections_chunk = noise_worker(
+            noise_detections_chunk_file = noise_worker(
+                output_dir,
                 pointing_ids,
                 pointing_ids_indices,
                 pointings,
@@ -389,10 +409,10 @@ def generate_noise(
                 density,
                 seed=seed,
             )
-            noise_detections = qv.concatenate(
-                [noise_detections, noise_detections_chunk]
-            )
-            if noise_detections.fragmented():
-                noise_detections = qv.defragment(noise_detections)
 
-    return noise_detections
+            noise_detections_chunk = Noise.from_parquet(noise_detections_chunk_file)
+            noise_file_writer.write_table(noise_detections_chunk.table)
+
+            os.remove(noise_detections_chunk_file)
+
+    return noise_file

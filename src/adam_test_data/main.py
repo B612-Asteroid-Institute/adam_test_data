@@ -2,10 +2,11 @@ import multiprocessing as mp
 import os
 import sqlite3 as sql
 import subprocess
-from typing import Literal, Optional, Union
+from typing import Literal, Optional, Type, Union
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import quivr as qv
 import ray
 from adam_core.propagator.utils import _iterate_chunk_indices
@@ -408,7 +409,8 @@ def sorcha_worker(
     overwrite: bool = True,
     randomization: bool = True,
     output_columns: Literal["basic", "all"] = "all",
-) -> tuple[Union[SorchaOutputBasic, SorchaOutputAll], SorchaOutputStats]:
+    cleanup: bool = True,
+) -> tuple[str, str]:
     """
     Run sorcha on a subset of the input small bodies.
 
@@ -439,9 +441,8 @@ def sorcha_worker(
 
     Returns
     -------
-    tuple[Union[SorchaOutputBasic, SorchaOutputAll], SorchaOutputStats]
-        Sorcha output observations (in basic or all formats) and statistics
-        per object and filter.
+    tuple[str, str]
+        The paths to the Sorcha output files.
     """
     orbit_ids_chunk = orbit_ids[orbit_ids_indices[0] : orbit_ids_indices[1]]
 
@@ -450,11 +451,10 @@ def sorcha_worker(
     )
 
     # Create a subdirectory for this chunk
-    output_dir_chunk = os.path.join(
-        output_dir, f"chunk_{orbit_ids_indices[0]:07d}_{orbit_ids_indices[1]:07d}"
-    )
+    chunk_base = f"chunk_{orbit_ids_indices[0]:08d}_{orbit_ids_indices[1]:08d}"
+    output_dir_chunk = os.path.join(output_dir, chunk_base)
 
-    return sorcha(
+    sorcha_outputs, sorcha_stats = sorcha(
         output_dir_chunk,
         small_bodies_chunk,
         pointings,
@@ -465,6 +465,15 @@ def sorcha_worker(
         randomization=randomization,
         output_columns=output_columns,
     )
+
+    # Serialize the output tables to parquet and return the paths
+    sorcha_output_file = os.path.join(output_dir, f"{chunk_base}_{tag}.parquet")
+    sorcha_stats_file = os.path.join(output_dir, f"{chunk_base}_{tag}_stats.parquet")
+
+    sorcha_outputs.to_parquet(sorcha_output_file)
+    sorcha_stats.to_parquet(sorcha_stats_file)
+
+    return sorcha_output_file, sorcha_stats_file
 
 
 sorcha_worker_remote = ray.remote(sorcha_worker)
@@ -483,7 +492,7 @@ def run_sorcha(
     output_columns: Literal["basic", "all"] = "all",
     chunk_size: int = 1000,
     max_processes: Optional[int] = 1,
-) -> tuple[Union[SorchaOutputBasic, SorchaOutputAll], SorchaOutputStats]:
+) -> tuple[str, str]:
     """
     Run sorcha on the given small bodies, pointings, and observatory.
 
@@ -530,6 +539,25 @@ def run_sorcha(
         sorcha_outputs = SorchaOutputAll.empty()
     sorcha_stats = SorchaOutputStats.empty()
 
+    # Create the output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    sorcha_output_file = os.path.join(output_dir, f"{tag}.parquet")
+    sorcha_stats_file = os.path.join(output_dir, f"{tag}_stats.parquet")
+
+    # Write the empty tables to parquet
+    sorcha_outputs.to_parquet(sorcha_output_file)
+    sorcha_stats.to_parquet(sorcha_stats_file)
+
+    sorcha_outputs_writer = pq.ParquetWriter(
+        sorcha_output_file,
+        sorcha_outputs.schema,
+    )
+    sorcha_stats_writer = pq.ParquetWriter(
+        sorcha_stats_file,
+        sorcha_stats.schema,
+    )
+
     use_ray = initialize_use_ray(num_cpus=max_processes)
     if use_ray:
 
@@ -558,32 +586,40 @@ def run_sorcha(
 
             if len(futures) >= max_processes * 1.5:
                 finished, futures = ray.wait(futures, num_returns=1)
+                sorcha_outputs_chunk_file, sorcha_stats_chunk_file = ray.get(
+                    finished[0]
+                )
 
-                sorcha_outputs_chunk, sorcha_stats_chunk = ray.get(finished[0])
-                sorcha_outputs = qv.concatenate([sorcha_outputs, sorcha_outputs_chunk])
-                if sorcha_outputs.fragmented():
-                    sorcha_outputs = qv.defragment(sorcha_outputs)
+                sorcha_outputs_chunk = sorcha_outputs.from_parquet(
+                    sorcha_outputs_chunk_file
+                )
+                sorcha_stats_chunk = sorcha_stats.from_parquet(sorcha_stats_chunk_file)
 
-                sorcha_stats = qv.concatenate([sorcha_stats, sorcha_stats_chunk])
-                if sorcha_stats.fragmented():
-                    sorcha_stats = qv.defragment(sorcha_stats)
+                sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
+                sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
+
+                os.remove(sorcha_outputs_chunk_file)
+                os.remove(sorcha_stats_chunk_file)
 
         while futures:
             finished, futures = ray.wait(futures, num_returns=1)
-            sorcha_outputs_chunk, sorcha_stats_chunk = ray.get(finished[0])
+            sorcha_outputs_chunk_file, sorcha_stats_chunk_file = ray.get(finished[0])
 
-            sorcha_outputs = qv.concatenate([sorcha_outputs, sorcha_outputs_chunk])
-            if sorcha_outputs.fragmented():
-                sorcha_outputs = qv.defragment(sorcha_outputs)
+            sorcha_outputs_chunk = sorcha_outputs.from_parquet(
+                sorcha_outputs_chunk_file
+            )
+            sorcha_stats_chunk = sorcha_stats.from_parquet(sorcha_stats_chunk_file)
 
-            sorcha_stats = qv.concatenate([sorcha_stats, sorcha_stats_chunk])
-            if sorcha_stats.fragmented():
-                sorcha_stats = qv.defragment(sorcha_stats)
+            sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
+            sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
+
+            os.remove(sorcha_outputs_chunk_file)
+            os.remove(sorcha_stats_chunk_file)
 
     else:
 
         for orbit_ids_indices in _iterate_chunk_indices(orbit_ids, chunk_size):
-            sorcha_outputs_chunk, sorcha_stats_chunk = sorcha_worker(
+            sorcha_outputs_chunk_file, sorcha_stats_chunk_file = sorcha_worker(
                 orbit_ids,
                 orbit_ids_indices,
                 output_dir,
@@ -597,12 +633,15 @@ def run_sorcha(
                 output_columns=output_columns,
             )
 
-            sorcha_outputs = qv.concatenate([sorcha_outputs, sorcha_outputs_chunk])
-            if sorcha_outputs.fragmented():
-                sorcha_outputs = qv.defragment(sorcha_outputs)
+            sorcha_outputs_chunk = sorcha_outputs.from_parquet(
+                sorcha_outputs_chunk_file
+            )
+            sorcha_stats_chunk = sorcha_stats.from_parquet(sorcha_stats_chunk_file)
 
-            sorcha_stats = qv.concatenate([sorcha_stats, sorcha_stats_chunk])
-            if sorcha_stats.fragmented():
-                sorcha_stats = qv.defragment(sorcha_stats)
+            sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
+            sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
 
-    return sorcha_outputs, sorcha_stats
+            os.remove(sorcha_outputs_chunk_file)
+            os.remove(sorcha_stats_chunk_file)
+
+    return sorcha_output_file, sorcha_stats_file
