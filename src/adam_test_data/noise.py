@@ -321,6 +321,7 @@ def generate_noise(
     seed: Optional[int] = None,
     chunk_size: int = 100,
     max_processes: Optional[int] = 1,
+    cleanup: bool = True,
 ) -> str:
     """
     Generate noise detections for each pointing in pointings using the given observatory and density.
@@ -339,6 +340,9 @@ def generate_noise(
         The size of the chunks to process.
     max_processes : int, optional
         The maximum number of processes to use. If None, all available CPUs will be used.
+    cleanup : bool, optional
+        Whether to delete the temporary chunked files after concatenating them
+        into the final `noise_file`.
 
     Returns
     -------
@@ -386,7 +390,8 @@ def generate_noise(
                 noise_detections_chunk = Noise.from_parquet(noise_detections_chunk_file)
                 noise_file_writer.write_table(noise_detections_chunk.table)
 
-                os.remove(noise_detections_chunk_file)
+                if cleanup:
+                    os.remove(noise_detections_chunk_file)
 
         while futures:
             finished, futures = ray.wait(futures, num_returns=1)
@@ -395,7 +400,8 @@ def generate_noise(
             noise_detections_chunk = Noise.from_parquet(noise_detections_chunk_file)
             noise_file_writer.write_table(noise_detections_chunk.table)
 
-            os.remove(noise_detections_chunk_file)
+            if cleanup:
+                os.remove(noise_detections_chunk_file)
 
     else:
 
@@ -413,6 +419,7 @@ def generate_noise(
             noise_detections_chunk = Noise.from_parquet(noise_detections_chunk_file)
             noise_file_writer.write_table(noise_detections_chunk.table)
 
-            os.remove(noise_detections_chunk_file)
+            if cleanup:
+                os.remove(noise_detections_chunk_file)
 
     return noise_file
