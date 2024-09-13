@@ -46,7 +46,7 @@ def test_magnitude_model_brightness_limit_raises() -> None:
 
     with pytest.raises(
         ValueError,
-        match="Could not sample magnitudes above the brightness limit after 10 attempts.",
+        match="Could not sample magnitudes above the brightness limit after 25 attempts.",
     ):
         mag, mag_err = magnitude_model(
             n, depth, scale, skewness, brightness_limit=brightness_limit, seed=seed

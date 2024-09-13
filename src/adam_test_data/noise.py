@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import warnings
 from typing import Optional
 
 import jax
@@ -66,7 +67,7 @@ def magnitude_model(
 
     Raises
     ------
-    ValueError : When the magnitudes cannot be sampled above the brightness limit after 10 attempts.
+    ValueError : When the magnitudes cannot be sampled above the brightness limit after 25 attempts.
     """
     rng = np.random.default_rng(seed)
     skewnorm_random = skewnorm
@@ -81,9 +82,9 @@ def magnitude_model(
             )
 
             i += 1
-            if i == 10:
+            if i == 25:
                 raise ValueError(
-                    "Could not sample magnitudes above the brightness limit after 10 attempts."
+                    "Could not sample magnitudes above the brightness limit after 25 attempts."
                 )
 
     mag_err = rng.uniform(0.01, 0.3, n)
@@ -206,13 +207,20 @@ def add_noise(
         dec_dets = np.degrees(dec_dets)
 
         # Calculate the magnitude and magnitude errors
-        mag, mag_err = magnitude_model(
-            n_dets,
-            pointing.fieldFiveSigmaDepth_mag[0].as_py(),
-            mag_scale[i],
-            mag_skewness[i],
-            brightness_limit=bright_limits[filter_i],
-        )
+        try:
+            mag, mag_err = magnitude_model(
+                n_dets,
+                pointing.fieldFiveSigmaDepth_mag[0].as_py(),
+                mag_scale[i],
+                mag_skewness[i],
+                brightness_limit=bright_limits[filter_i],
+            )
+        except ValueError as e:
+            warnings.warn(
+                f"Skipping pointing {pointing.observationId[0].as_py()}: {e}",
+                UserWarning,
+            )
+            continue
 
         # Calculate the astrometric error (here we use the seeing FWHM of the pointing)
         fwhm = pointing.seeingFwhmEff_arcsec[0].as_py()
