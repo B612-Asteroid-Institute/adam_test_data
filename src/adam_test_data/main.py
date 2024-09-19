@@ -252,6 +252,20 @@ class SorchaOutputStats(qv.Table):
     max_phase = qv.Float64Column(nullable=True)
 
 
+class TestDataSummary(qv.Table):
+
+    catalog_id = qv.StringColumn()
+    start_time = Timestamp.as_column()
+    end_time = Timestamp.as_column()
+    num_orbits = qv.Int64Column()
+    population_name = qv.StringColumn()
+    pointings_name = qv.StringColumn()
+    observatory_code = qv.StringColumn()
+    noise_density = qv.Float64Column(nullable=True)
+    catalog_file = qv.StringColumn()
+    noise_file = qv.StringColumn(nullable=True)
+
+
 def write_sorcha_inputs(
     output_dir: str,
     small_bodies: SmallBodies,
@@ -781,7 +795,7 @@ def generate_test_data(
     chunk_size: int = 1000,
     max_processes: Optional[int] = 1,
     cleanup: bool = True,
-) -> tuple[str, dict[str, str]]:
+) -> tuple[str, dict[str, str], TestDataSummary]:
     """
     Generate a test data set optionally with noise observations.
 
@@ -858,28 +872,74 @@ def generate_test_data(
     )
 
     noise_files: dict[str, str] = {}
-    if noise_densities is None:
-        return (
-            catalog_file,
-            noise_files,
+    if noise_densities is not None:
+
+        test_data_summary = TestDataSummary.empty()
+
+        # Now generate noise observations
+        for noise_density in noise_densities:
+            tag_noise = f"{tag}_noise_{noise_density:.3f}"
+
+            # Add noise to the observations
+            noise_catalog_file = generate_noise(
+                output_dir,
+                pointings_filtered,
+                observatory,
+                noise_density,
+                tag=tag_noise,
+                seed=seed,
+                chunk_size=chunk_size,
+                max_processes=max_processes,
+                cleanup=cleanup,
+            )
+            noise_files[f"{noise_density:.2f}"] = noise_catalog_file
+
+            test_data_summary_density = TestDataSummary.from_kwargs(
+                catalog_id=[tag],
+                start_time=Timestamp.from_mjd(
+                    pa.array([pc.min(pointings_filtered.observationStartMJD_TAI)]),
+                    scale="tai",
+                ),
+                end_time=Timestamp.from_mjd(
+                    pa.array([pc.max(pointings_filtered.observationStartMJD_TAI)]),
+                    scale="tai",
+                ),
+                num_orbits=[len(small_bodies.orbits)],
+                population_name=[small_bodies.name],
+                pointings_name=[pointings.name],
+                observatory_code=[observatory.code],
+                noise_density=[noise_density],
+                catalog_file=[catalog_file],
+                noise_file=[noise_catalog_file],
+            )
+
+            test_data_summary = qv.concatenate(
+                [test_data_summary, test_data_summary_density]
+            )
+            if test_data_summary.fragmented():
+                test_data_summary = qv.defragment(test_data_summary)
+
+    else:
+
+        test_data_summary = TestDataSummary.from_kwargs(
+            catalog_id=[tag],
+            start_time=Timestamp.from_mjd(
+                pa.array([pc.min(pointings_filtered.observationStartMJD_TAI)]),
+                scale="tai",
+            ),
+            end_time=Timestamp.from_mjd(
+                pa.array([pc.max(pointings_filtered.observationStartMJD_TAI)]),
+                scale="tai",
+            ),
+            num_orbits=[len(small_bodies.orbits)],
+            population_name=[small_bodies.name],
+            pointings_name=[pointings.name],
+            observatory_code=[observatory.code],
+            noise_density=None,
+            catalog_file=[catalog_file],
+            noise_file=None,
         )
 
-    # Now generate noise observations
-    for noise_density in noise_densities:
-        tag_noise = f"{tag}_noise_{noise_density:.3f}"
+    test_data_summary.to_parquet(os.path.join(output_dir, f"{tag}_summary.parquet"))
 
-        # Add noise to the observations
-        noise_catalog = generate_noise(
-            output_dir,
-            pointings_filtered,
-            observatory,
-            noise_density,
-            tag=tag_noise,
-            seed=seed,
-            chunk_size=chunk_size,
-            max_processes=max_processes,
-            cleanup=cleanup,
-        )
-        noise_files[f"{noise_density:.2f}"] = noise_catalog
-
-    return catalog_file, noise_files
+    return catalog_file, noise_files, test_data_summary
