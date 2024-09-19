@@ -1,3 +1,5 @@
+import tempfile
+
 import pytest
 
 from ..observatory import (
@@ -181,3 +183,22 @@ def test_observatory_to_sorcha_config_raises() -> None:
             main_filter="r",
         )
         observatory_to_sorcha_config(obs)
+
+
+def test_Observatory_to_from_json() -> None:
+    # Test that we can round trip an Observatory object to and from a JSON file.
+    with tempfile.NamedTemporaryFile(suffix=".json") as temp_file:
+        obs = Observatory(
+            code="X05",
+            filters=["u", "g", "r", "i", "z", "y"],
+            bright_limit=[16, 16, 16, 16, 16, 16],
+            fov=FieldOfView(camera_model="circle", fill_factor=0.9, circle_radius=3),
+            simulation=Simulation(ang_fov=1.0, fov_buffer=0.1),
+            main_filter="r",
+        )
+
+        obs.to_json(temp_file.name)
+
+        obs2 = Observatory.from_json(temp_file.name)
+
+        assert obs == obs2

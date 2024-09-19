@@ -20,7 +20,7 @@ from adam_core.time import Timestamp
 from jax import Array
 from scipy.stats import skewnorm
 
-from .observatory import Observatory
+from .observatories import Observatory
 from .pointings import Pointings
 
 
