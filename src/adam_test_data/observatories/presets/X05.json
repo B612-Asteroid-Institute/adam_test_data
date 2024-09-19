@@ -1,0 +1,29 @@
+{
+    "code": "X05",
+    "filters": [
+        "u",
+        "g",
+        "r",
+        "i",
+        "z",
+        "y"
+    ],
+    "main_filter": "r",
+    "bright_limit": [
+        16.0,
+        16.0,
+        16.0,
+        16.0,
+        16.0,
+        16.0
+    ],
+    "fov": {
+        "camera_model": "circle",
+        "circle_radius": 1.75,
+        "fill_factor": 0.9
+    },
+    "simulation": {
+        "ang_fov": 2.06,
+        "fov_buffer": 0.2
+    }
+}

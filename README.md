@@ -33,31 +33,17 @@ import pandas as pd
 import pyarrow as pa
 
 from astropy.time import Time
-from adam_test_data.observatory import Observatory, Simulation, FieldOfView
+from adam_test_data.observatories.presets import load_W84
 from adam_test_data.pointings import Pointings
 
+w84 = load_W84()
 
-w84 = Observatory(
-    code="W84",
-    filters=["u", "g", "r", "i", "z", "Y", "VR"],
-    main_filter="r",
-    bright_limit=[15.0,15.0,15.0,15.0,15.0,15.0,15.0],
-    fov=FieldOfView(
-        camera_model="circle",
-        circle_radius=1.1,
-        fill_factor=0.9
-    ),
-    simulation=Simulation(
-        ang_fov=2.5,
-        fov_buffer=0.1
-    )
-)
-
-
+# Load in the NSC DR2 exposures (this is external data not included in the package)
 nsc_dr2_exposures = pd.read_csv("nsc_dr2_exposure.csv")
 nsc_dr2_exposures["depth5sig"] = nsc_dr2_exposures["depth95"]
 nsc_dr2_exposures_w84 = nsc_dr2_exposures[nsc_dr2_exposures["instrument"] == "c4d"]
 
+# Create a Pointings object using the exposures info
 w84_pointings = Pointings.from_kwargs(
     observationId=nsc_dr2_exposures_w84["exposure"],
     observationStartMJD_TAI=Time(nsc_dr2_exposures_w84["mjd"], format="mjd", scale="utc").tai.mjd,
