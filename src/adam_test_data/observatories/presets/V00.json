@@ -1,0 +1,20 @@
+{
+    "code": "V00",
+    "filters": [
+        "z"
+    ],
+    "main_filter": "z",
+    "bright_limit": [
+        15.0
+
+    ],
+    "fov": {
+        "camera_model": "circle",
+        "circle_radius": 0.875,
+        "fill_factor": 0.9
+    },
+    "simulation": {
+        "ang_fov": 1,
+        "fov_buffer": 0.2
+    }
+}
