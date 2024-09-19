@@ -1,6 +1,8 @@
 import sqlite3 as sql
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import quivr as qv
 
 
@@ -52,3 +54,17 @@ class Pointings(qv.Table):
         """
         query = f"SELECT * FROM {table_name}"
         return cls.from_dataframe(pd.read_sql(query, con, index_col=None))
+
+    def exposure_midpoint(self) -> pa.Array:
+        """
+        Calculate the midpoint of the exposures.
+
+        Returns
+        -------
+        pa.Array
+            The midpoint of each exposure in MJD TAI.
+        """
+        return pc.add(
+            self.observationStartMJD_TAI,
+            pc.divide(self.visitExposureTime, 2.0 / 86400.0),
+        )

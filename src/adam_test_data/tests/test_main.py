@@ -19,7 +19,7 @@ from ..main import (
     sorcha,
     write_sorcha_inputs,
 )
-from ..noise import Noise
+from ..noise import NoiseCatalog
 from ..observatory import FieldOfView, Observatory, Simulation
 from ..pointings import Pointings
 from ..populations import PhotometricProperties, SmallBodies
@@ -296,12 +296,12 @@ def test_generate_test_data_with_noise(
         assert len(os.listdir(out_dir)) == 4  # There should be only 4 files
         # 2 parquet files for sorcha outputs and 2 for noise outputs.
 
-        noise100 = Noise.from_parquet(results[2]["100.00"])
+        noise100 = NoiseCatalog.from_parquet(results[2]["100.00"])
         expected_noise_detections = 6 * 100 * 1.75**2 * np.pi
         assert len(noise100) >= 0.9 * expected_noise_detections
         assert len(noise100) <= 1.1 * expected_noise_detections
 
-        noise1000 = Noise.from_parquet(results[2]["1000.00"])
+        noise1000 = NoiseCatalog.from_parquet(results[2]["1000.00"])
         expected_noise_detections = 6 * 1000 * 1.75**2 * np.pi
         assert len(noise1000) >= 0.9 * expected_noise_detections
         assert len(noise1000) <= 1.1 * expected_noise_detections
