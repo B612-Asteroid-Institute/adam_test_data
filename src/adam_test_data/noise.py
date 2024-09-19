@@ -13,36 +13,15 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import quivr as qv
 import ray
+from adam_core.observations import SourceCatalog
 from adam_core.propagator.utils import _iterate_chunk_indices
 from adam_core.ray_cluster import initialize_use_ray
 from adam_core.time import Timestamp
 from jax import Array
-from quivr.validators import and_, ge, le
 from scipy.stats import skewnorm
 
 from .observatory import Observatory
 from .pointings import Pointings
-
-
-class NoiseCatalog(qv.Table):
-
-    id = qv.LargeStringColumn(default=lambda: uuid.uuid4().hex)
-    exposure_id = qv.LargeStringColumn(nullable=True)
-    time = Timestamp.as_column()
-    ra = qv.Float64Column(validator=and_(ge(0), le(360)))
-    dec = qv.Float64Column(validator=and_(ge(-90), le(90)))
-    ra_sigma = qv.Float64Column(nullable=True)
-    dec_sigma = qv.Float64Column(nullable=True)
-    mag = qv.Float64Column(nullable=True)
-    mag_sigma = qv.Float64Column(nullable=True)
-    observatory_code = qv.LargeStringColumn()
-    filter = qv.LargeStringColumn(nullable=True)
-    exposure_start_time = Timestamp.as_column(nullable=True)
-    exposure_duration = qv.Float64Column(nullable=True)
-    exposure_seeing = qv.Float64Column(nullable=True)
-    exposure_depth_5sigma = qv.Float64Column(nullable=True)
-    object_id = qv.LargeStringColumn(nullable=True)
-    catalog_id = qv.LargeStringColumn()
 
 
 def magnitude_model(
@@ -163,7 +142,7 @@ def add_noise(
     density: float,
     tag: Optional[str] = "noise",
     seed: Optional[int] = None,
-) -> NoiseCatalog:
+) -> SourceCatalog:
     """
     For each pointing in pointings, create noise observations with a fixed density per
     square degree. The magnitude distribution is modeled as a skewed normal distribution
@@ -186,7 +165,7 @@ def add_noise(
 
     Returns
     -------
-    noise : NoiseCatalog
+    noise : SourceCatalog
         The catalog of noise detections.
     """
     if observatory.fov.camera_model != "circle":
@@ -196,7 +175,7 @@ def add_noise(
         f: observatory.bright_limit[i] for i, f in enumerate(observatory.filters)
     }
 
-    noise = NoiseCatalog.empty()
+    noise = SourceCatalog.empty()
     n_pointings = len(pointings)
 
     # Bounds derived from looking exposures in the NOIRLab Source Catalog
@@ -256,6 +235,7 @@ def add_noise(
         astrometric_error_arcsec = astrometric_error_arcsec[mask]
 
         num_obs = len(ra_dets)
+        observation_id = [uuid.uuid4().hex for _ in range(num_obs)]
         exposure_id = pa.repeat(pointing.observationId[0], num_obs)
         observation_time = pa.repeat(pointing.exposure_midpoint()[0], num_obs)
         observatory_code = pa.repeat(observatory.code, num_obs)
@@ -269,7 +249,8 @@ def add_noise(
         exposure_depth_5sigma = pa.repeat(pointing.fieldFiveSigmaDepth_mag[0], num_obs)
         catalog_id = pa.repeat(tag, num_obs)
 
-        noise_pointing = NoiseCatalog.from_kwargs(
+        noise_pointing = SourceCatalog.from_kwargs(
+            id=observation_id,
             exposure_id=exposure_id,
             time=Timestamp.from_mjd(observation_time, scale="tai"),
             ra=ra_dets,
@@ -400,14 +381,14 @@ def generate_noise(
         max_processes = mp.cpu_count()
 
     pointing_ids = pointings.observationId
-    noise_catalog = NoiseCatalog.empty()
+    noise_catalog = SourceCatalog.empty()
 
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
     noise_file = os.path.join(output_dir, f"noise_{density:.3f}.parquet")
     noise_catalog.to_parquet(noise_file)
-    noise_file_writer = pq.ParquetWriter(noise_file, NoiseCatalog.schema)
+    noise_file_writer = pq.ParquetWriter(noise_file, SourceCatalog.schema)
 
     use_ray = initialize_use_ray(max_processes)
     if use_ray:
@@ -438,7 +419,7 @@ def generate_noise(
                 finished, futures = ray.wait(futures, num_returns=1)
 
                 noise_catalog_chunk_file = ray.get(finished[0])
-                noise_catalog_chunk = NoiseCatalog.from_parquet(
+                noise_catalog_chunk = SourceCatalog.from_parquet(
                     noise_catalog_chunk_file
                 )
                 noise_file_writer.write_table(noise_catalog_chunk.table)
@@ -450,7 +431,7 @@ def generate_noise(
             finished, futures = ray.wait(futures, num_returns=1)
 
             noise_catalog_chunk_file = ray.get(finished[0])
-            noise_catalog_chunk = NoiseCatalog.from_parquet(noise_catalog_chunk_file)
+            noise_catalog_chunk = SourceCatalog.from_parquet(noise_catalog_chunk_file)
             noise_file_writer.write_table(noise_catalog_chunk.table)
 
             if cleanup:
@@ -470,7 +451,7 @@ def generate_noise(
                 seed=seed,
             )
 
-            noise_catalog_chunk = NoiseCatalog.from_parquet(noise_catalog_chunk_file)
+            noise_catalog_chunk = SourceCatalog.from_parquet(noise_catalog_chunk_file)
             noise_file_writer.write_table(noise_catalog_chunk.table)
 
             if cleanup:

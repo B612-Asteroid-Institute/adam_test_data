@@ -12,7 +12,6 @@ from adam_core.orbits import Orbits
 from adam_core.time import Timestamp
 
 from ..main import generate_test_data, sorcha, write_sorcha_inputs
-from ..noise import NoiseCatalog
 from ..observatory import FieldOfView, Observatory, Simulation
 from ..pointings import Pointings
 from ..populations import PhotometricProperties, SmallBodies
@@ -273,12 +272,12 @@ def test_generate_test_data_with_noise(
         assert len(os.listdir(out_dir)) == 3  # There should be only 3 files
         # 1 parquet file for sorcha outputs and 2 for noise outputs.
 
-        noise100 = NoiseCatalog.from_parquet(noise_files["100.00"])
+        noise100 = SourceCatalog.from_parquet(noise_files["100.00"])
         expected_noise_detections = 6 * 100 * 1.75**2 * np.pi
         assert len(noise100) >= 0.9 * expected_noise_detections
         assert len(noise100) <= 1.1 * expected_noise_detections
 
-        noise1000 = NoiseCatalog.from_parquet(noise_files["1000.00"])
+        noise1000 = SourceCatalog.from_parquet(noise_files["1000.00"])
         expected_noise_detections = 6 * 1000 * 1.75**2 * np.pi
         assert len(noise1000) >= 0.9 * expected_noise_detections
         assert len(noise1000) <= 1.1 * expected_noise_detections
