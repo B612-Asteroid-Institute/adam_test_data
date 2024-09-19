@@ -22,6 +22,7 @@ class PhotometricProperties(qv.Table):
 class SmallBodies(qv.Table):
     orbits = Orbits.as_column()
     properties = PhotometricProperties.as_column()
+    name = qv.StringAttribute()
 
 
 def photometric_properties_to_sorcha_table(

@@ -71,6 +71,7 @@ def pointings() -> Pointings:
             "W84",
             "W84",
         ],
+        name="TestPointings",
     )
 
     return pointings

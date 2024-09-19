@@ -21,6 +21,8 @@ class Pointings(qv.Table):
     fieldDec_deg = qv.Float64Column()
     rotSkyPos_deg = qv.Float64Column()
 
+    name = qv.StringAttribute()
+
     # Additional columns which may be useful
     observatory_code = qv.LargeStringColumn(nullable=True)
 
@@ -33,6 +35,9 @@ class Pointings(qv.Table):
         con : sqlite3.Connection
             The connection to the SQLite database.
         """
+        # Create an attribute table and store the name attribute
+        con.execute("""CREATE TABLE IF NOT EXISTS attributes (name TEXT)""")
+        con.execute("""INSERT INTO attributes (name) VALUES (?)""", (self.name,))
         self.to_dataframe().to_sql(table_name, con, if_exists="replace", index=False)
 
     @classmethod
@@ -52,8 +57,9 @@ class Pointings(qv.Table):
         Pointings
             The table loaded from the database.
         """
-        query = f"SELECT * FROM {table_name}"
-        return cls.from_dataframe(pd.read_sql(query, con, index_col=None))
+        name = con.execute("""SELECT name FROM attributes""").fetchone()[0]
+        query = f"""SELECT * FROM {table_name}"""
+        return cls.from_dataframe(pd.read_sql(query, con, index_col=None), name=name)
 
     def exposure_midpoint(self) -> pa.Array:
         """
