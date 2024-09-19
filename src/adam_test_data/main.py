@@ -436,7 +436,7 @@ def sorcha(
     randomization: bool = True,
     output_columns: Literal["basic", "all"] = "all",
     cleanup: bool = True,
-) -> tuple[Union[SorchaOutputBasic, SorchaOutputAll], SorchaOutputStats]:
+) -> SourceCatalog:
     """
     Run sorcha on the given small bodies, pointings, and observatory.
 
@@ -465,9 +465,8 @@ def sorcha(
 
     Returns
     -------
-    tuple[Union[SorchaOutputBasic, SorchaOutputAll], SorchaOutputStats]
-        Sorcha output observations (in basic or all formats) and statistics
-        per object and filter.
+    SourceCatalog
+        Sorcha outputs as an adam_core SourceCatalog.
     """
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -513,7 +512,6 @@ def sorcha(
         )
     else:
         output_file = f"{output_dir}/{tag}.csv"
-        output_stats_file = f"{output_dir}/{stats_file}.csv"
 
         sorcha_output_table: Union[Type[SorchaOutputBasic], Type[SorchaOutputAll]]
         if output_columns == "basic":
@@ -527,15 +525,20 @@ def sorcha(
         sorcha_outputs: Union[SorchaOutputBasic, SorchaOutputAll]
         if os.path.exists(output_file):
             sorcha_outputs = sorcha_output_table.from_csv(output_file)
-            sorcha_stats = SorchaOutputStats.from_csv(output_stats_file)
+            source_catalog = sorcha_outputs.to_source_catalog(
+                catalog_id=tag,
+                exposure_id=pointings.observationId[0].as_py(),
+                observatory_code=observatory.code,
+            )
+
         else:
             sorcha_outputs = sorcha_output_table.empty()
-            sorcha_stats = SorchaOutputStats.empty()
+            source_catalog = SourceCatalog.empty()
 
     if cleanup:
         shutil.rmtree(output_dir)
 
-    return sorcha_outputs, sorcha_stats
+    return source_catalog
 
 
 def sorcha_worker(
@@ -551,7 +554,7 @@ def sorcha_worker(
     randomization: bool = True,
     output_columns: Literal["basic", "all"] = "all",
     cleanup: bool = True,
-) -> tuple[str, str]:
+) -> str:
     """
     Run sorcha on a subset of the input small bodies.
 
@@ -582,8 +585,8 @@ def sorcha_worker(
 
     Returns
     -------
-    tuple[str, str]
-        The paths to the Sorcha output files.
+    str
+        The path to the SourceCatalog output file.
     """
     orbit_ids_chunk = orbit_ids[orbit_ids_indices[0] : orbit_ids_indices[1]]
 
@@ -595,7 +598,7 @@ def sorcha_worker(
     chunk_base = f"chunk_{orbit_ids_indices[0]:08d}_{orbit_ids_indices[1]:08d}"
     output_dir_chunk = os.path.join(output_dir, chunk_base)
 
-    sorcha_outputs, sorcha_stats = sorcha(
+    catalog = sorcha(
         output_dir_chunk,
         small_bodies_chunk,
         pointings,
@@ -609,13 +612,10 @@ def sorcha_worker(
     )
 
     # Serialize the output tables to parquet and return the paths
-    sorcha_output_file = os.path.join(output_dir, f"{chunk_base}_{tag}.parquet")
-    sorcha_stats_file = os.path.join(output_dir, f"{chunk_base}_{tag}_stats.parquet")
+    catalog_file = os.path.join(output_dir, f"{chunk_base}_{tag}.parquet")
+    catalog.to_parquet(catalog_file)
 
-    sorcha_outputs.to_parquet(sorcha_output_file)
-    sorcha_stats.to_parquet(sorcha_stats_file)
-
-    return sorcha_output_file, sorcha_stats_file
+    return catalog_file
 
 
 sorcha_worker_remote = ray.remote(sorcha_worker)
@@ -635,7 +635,7 @@ def run_sorcha(
     chunk_size: int = 1000,
     max_processes: Optional[int] = 1,
     cleanup: bool = True,
-) -> tuple[str, str]:
+) -> str:
     """
     Run sorcha on the given small bodies, pointings, and observatory.
 
@@ -668,39 +668,25 @@ def run_sorcha(
 
     Returns
     -------
-    tuple[Union[SorchaOutputBasic, SorchaOutputAll], SorchaOutputStats]
-        Sorcha output observations (in basic or all formats) and statistics
-        per object and filter.
+    str
+        The path to the SourceCatalog output file.
     """
     if max_processes is None:
         max_processes = mp.cpu_count()
 
     orbit_ids = small_bodies.orbits.orbit_id
 
-    sorcha_outputs: Union[SorchaOutputBasic, SorchaOutputAll]
-    if output_columns == "basic":
-        sorcha_outputs = SorchaOutputBasic.empty()
-    else:
-        sorcha_outputs = SorchaOutputAll.empty()
-    sorcha_stats = SorchaOutputStats.empty()
-
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    sorcha_output_file = os.path.join(output_dir, f"{tag}.parquet")
-    sorcha_stats_file = os.path.join(output_dir, f"{tag}_stats.parquet")
+    catalog = SourceCatalog.empty()
+    catalog_file = os.path.join(output_dir, f"{tag}.parquet")
+    catalog.to_parquet(catalog_file)
 
-    # Write the empty tables to parquet
-    sorcha_outputs.to_parquet(sorcha_output_file)
-    sorcha_stats.to_parquet(sorcha_stats_file)
-
-    sorcha_outputs_writer = pq.ParquetWriter(
-        sorcha_output_file,
-        sorcha_outputs.schema,
-    )
-    sorcha_stats_writer = pq.ParquetWriter(
-        sorcha_stats_file,
-        sorcha_stats.schema,
+    # Create a Parquet writer for the output catalog
+    catalog_writer = pq.ParquetWriter(
+        catalog_file,
+        catalog.schema,
     )
 
     use_ray = initialize_use_ray(num_cpus=max_processes)
@@ -735,42 +721,28 @@ def run_sorcha(
 
             if len(futures) >= max_processes * 1.5:
                 finished, futures = ray.wait(futures, num_returns=1)
-                sorcha_outputs_chunk_file, sorcha_stats_chunk_file = ray.get(
-                    finished[0]
-                )
+                catalog_chunk_file = ray.get(finished[0])
 
-                sorcha_outputs_chunk = sorcha_outputs.from_parquet(
-                    sorcha_outputs_chunk_file
-                )
-                sorcha_stats_chunk = sorcha_stats.from_parquet(sorcha_stats_chunk_file)
-
-                sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
-                sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
+                catalog_chunk = SourceCatalog.from_parquet(catalog_chunk_file)
+                catalog_writer.write_table(catalog_chunk.table)
 
                 if cleanup:
-                    os.remove(sorcha_outputs_chunk_file)
-                    os.remove(sorcha_stats_chunk_file)
+                    os.remove(catalog_chunk_file)
 
         while futures:
             finished, futures = ray.wait(futures, num_returns=1)
-            sorcha_outputs_chunk_file, sorcha_stats_chunk_file = ray.get(finished[0])
+            catalog_chunk_file = ray.get(finished[0])
 
-            sorcha_outputs_chunk = sorcha_outputs.from_parquet(
-                sorcha_outputs_chunk_file
-            )
-            sorcha_stats_chunk = sorcha_stats.from_parquet(sorcha_stats_chunk_file)
-
-            sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
-            sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
+            catalog_chunk = SourceCatalog.from_parquet(catalog_chunk_file)
+            catalog_writer.write_table(catalog_chunk.table)
 
             if cleanup:
-                os.remove(sorcha_outputs_chunk_file)
-                os.remove(sorcha_stats_chunk_file)
+                os.remove(catalog_chunk_file)
 
     else:
 
         for orbit_ids_indices in _iterate_chunk_indices(orbit_ids, chunk_size):
-            sorcha_outputs_chunk_file, sorcha_stats_chunk_file = sorcha_worker(
+            catalog_chunk_file = sorcha_worker(
                 orbit_ids,
                 orbit_ids_indices,
                 output_dir,
@@ -785,19 +757,13 @@ def run_sorcha(
                 cleanup=cleanup,
             )
 
-            sorcha_outputs_chunk = sorcha_outputs.from_parquet(
-                sorcha_outputs_chunk_file
-            )
-            sorcha_stats_chunk = sorcha_stats.from_parquet(sorcha_stats_chunk_file)
-
-            sorcha_outputs_writer.write_table(sorcha_outputs_chunk.table)
-            sorcha_stats_writer.write_table(sorcha_stats_chunk.table)
+            catalog_chunk = SourceCatalog.from_parquet(catalog_chunk_file)
+            catalog_writer.write_table(catalog_chunk.table)
 
             if cleanup:
-                os.remove(sorcha_outputs_chunk_file)
-                os.remove(sorcha_stats_chunk_file)
+                os.remove(catalog_chunk_file)
 
-    return sorcha_output_file, sorcha_stats_file
+    return catalog_file
 
 
 def generate_test_data(
@@ -815,7 +781,7 @@ def generate_test_data(
     chunk_size: int = 1000,
     max_processes: Optional[int] = 1,
     cleanup: bool = True,
-) -> tuple[str, str, dict[str, str]]:
+) -> tuple[str, dict[str, str]]:
     """
     Generate a test data set optionally with noise observations.
 
@@ -854,8 +820,8 @@ def generate_test_data(
 
     Returns
     -------
-    tuple[str, str, dict[str, str]]
-        The paths to the Sorcha output file, the statistics file, and the noise observation files.
+    tuple[str, dict[str, str]]
+        The paths to the source catalog file, and a dictionary with paths to the noise files.
     """
     # Lets filter the pointings here first
     if time_range is not None:
@@ -872,7 +838,7 @@ def generate_test_data(
     os.makedirs(output_dir, exist_ok=True)
 
     # Run sorcha
-    sorcha_outputs_file, sorcha_stats_file = run_sorcha(
+    catalog_file = run_sorcha(
         output_dir,
         small_bodies,
         pointings_filtered,
@@ -890,8 +856,7 @@ def generate_test_data(
     noise_files: dict[str, str] = {}
     if noise_densities is None:
         return (
-            sorcha_outputs_file,
-            sorcha_stats_file,
+            catalog_file,
             noise_files,
         )
 
@@ -911,4 +876,4 @@ def generate_test_data(
         )
         noise_files[f"{noise_density:.2f}"] = noise_catalog
 
-    return sorcha_outputs_file, sorcha_stats_file, noise_files
+    return catalog_file, noise_files

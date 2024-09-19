@@ -1,6 +1,5 @@
 import os
 import tempfile
-from typing import Union
 
 import numpy as np
 import pyarrow as pa
@@ -8,17 +7,11 @@ import pyarrow.compute as pc
 import pytest
 from adam_core.coordinates import CartesianCoordinates
 from adam_core.coordinates.origin import Origin
+from adam_core.observations import SourceCatalog
 from adam_core.orbits import Orbits
 from adam_core.time import Timestamp
 
-from ..main import (
-    SorchaOutputAll,
-    SorchaOutputBasic,
-    SorchaOutputStats,
-    generate_test_data,
-    sorcha,
-    write_sorcha_inputs,
-)
+from ..main import generate_test_data, sorcha, write_sorcha_inputs
 from ..noise import NoiseCatalog
 from ..observatory import FieldOfView, Observatory, Simulation
 from ..pointings import Pointings
@@ -190,8 +183,7 @@ def test_sorcha(
     # Test that _run_sorcha runs without error and returns least 6 observations
 
     with tempfile.TemporaryDirectory() as out_dir:
-        sorcha_outputs: Union[SorchaOutputAll, SorchaOutputBasic]
-        sorcha_outputs, sorcha_stats = sorcha(
+        catalog = sorcha(
             out_dir,
             small_bodies,
             pointings,
@@ -199,16 +191,13 @@ def test_sorcha(
             randomization=False,
             output_columns="all",
         )
-        assert len(sorcha_outputs) == 6
-        if isinstance(sorcha_outputs, SorchaOutputAll):
-            assert pc.all(
-                pc.equal(
-                    sorcha_outputs.FieldID,
-                    pa.array(["exp00", "exp01", "exp02", "exp03", "exp04", "exp05"]),
-                )
+        assert len(catalog) == 6
+        assert pc.all(
+            pc.equal(
+                catalog.exposure_id,
+                pa.array(["exp00", "exp01", "exp02", "exp03", "exp04", "exp05"]),
             )
-
-        assert len(sorcha_stats) == 6  # One row for each object and filter
+        )
 
 
 def test_generate_test_data_no_noise(
@@ -217,7 +206,7 @@ def test_generate_test_data_no_noise(
 
     with tempfile.TemporaryDirectory() as out_dir:
 
-        results = generate_test_data(
+        catalog_file, noise_files = generate_test_data(
             out_dir,
             small_bodies,
             pointings,
@@ -229,17 +218,13 @@ def test_generate_test_data_no_noise(
             cleanup=True,
         )
 
-        assert len(results) == 3
-
-        sorcha_outputs = SorchaOutputAll.from_parquet(results[0])
-        sorcha_stats = SorchaOutputStats.from_parquet(results[1])
-        assert len(sorcha_outputs) == 6
-        assert len(sorcha_stats) == 6  # One row for each object and filter
-        assert len(os.listdir(out_dir)) == 2  # There should be only two files
+        catalog = SourceCatalog.from_parquet(catalog_file)
+        assert len(catalog) == 6
+        assert len(os.listdir(out_dir)) == 1  # There should be only two files
 
     with tempfile.TemporaryDirectory() as out_dir:
 
-        results = generate_test_data(
+        catalog_file, noise_files = generate_test_data(
             out_dir,
             small_bodies,
             pointings,
@@ -252,14 +237,10 @@ def test_generate_test_data_no_noise(
             cleanup=False,
         )
 
-        assert len(results) == 3
-
-        sorcha_outputs = SorchaOutputAll.from_parquet(results[0])
-        sorcha_stats = SorchaOutputStats.from_parquet(results[1])
-        assert len(sorcha_outputs) == 6
-        assert len(sorcha_stats) == 6  # One row for each object and filter
-        assert len(results[2]) == 0
-        assert len(os.listdir(out_dir)) == 5  # If we are not cleaning up
+        catalog = SourceCatalog.from_parquet(catalog_file)
+        assert len(catalog) == 6
+        assert len(noise_files) == 0
+        assert len(os.listdir(out_dir)) == 3  # If we are not cleaning up
         # then we expect there to be more files including the chunked partition
         # files and also a directory for those chunks
 
@@ -270,7 +251,7 @@ def test_generate_test_data_with_noise(
 
     with tempfile.TemporaryDirectory() as out_dir:
 
-        results = generate_test_data(
+        catalog_file, noise_files = generate_test_data(
             out_dir,
             small_bodies,
             pointings,
@@ -284,24 +265,20 @@ def test_generate_test_data_with_noise(
             cleanup=True,
         )
 
-        assert len(results) == 3
+        catalog = SourceCatalog.from_parquet(catalog_file)
+        assert len(catalog) == 6
+        assert len(noise_files) == 2
+        assert "100.00" in noise_files
+        assert "1000.00" in noise_files
+        assert len(os.listdir(out_dir)) == 3  # There should be only 3 files
+        # 1 parquet file for sorcha outputs and 2 for noise outputs.
 
-        sorcha_outputs = SorchaOutputAll.from_parquet(results[0])
-        sorcha_stats = SorchaOutputStats.from_parquet(results[1])
-        assert len(sorcha_outputs) == 6
-        assert len(sorcha_stats) == 6  # One row for each object and filter
-        assert len(results[2]) == 2
-        assert "100.00" in results[2]
-        assert "1000.00" in results[2]
-        assert len(os.listdir(out_dir)) == 4  # There should be only 4 files
-        # 2 parquet files for sorcha outputs and 2 for noise outputs.
-
-        noise100 = NoiseCatalog.from_parquet(results[2]["100.00"])
+        noise100 = NoiseCatalog.from_parquet(noise_files["100.00"])
         expected_noise_detections = 6 * 100 * 1.75**2 * np.pi
         assert len(noise100) >= 0.9 * expected_noise_detections
         assert len(noise100) <= 1.1 * expected_noise_detections
 
-        noise1000 = NoiseCatalog.from_parquet(results[2]["1000.00"])
+        noise1000 = NoiseCatalog.from_parquet(noise_files["1000.00"])
         expected_noise_detections = 6 * 1000 * 1.75**2 * np.pi
         assert len(noise1000) >= 0.9 * expected_noise_detections
         assert len(noise1000) <= 1.1 * expected_noise_detections
