@@ -10,11 +10,11 @@ license = {file = "LICENSE"}
 keywords = []
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "adam_core==0.2.2",
+    "adam_core@git+https://github.com/B612-Asteroid-Institute/adam_core@d27d19f549e3db8e8688b880f85e9c344b28b4d1#egg=adam_core",
     "jax",
     "ray",
     "sorcha@git+https://github.com/dirac-institute/sorcha@86724e74fcb8ae548a030c7c6beee1796b13b5e7#egg=sorcha",
-    "quivr==0.7.3a1",
+    "quivr",
 ]
 
 [build-system]
