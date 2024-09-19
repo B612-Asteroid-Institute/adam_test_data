@@ -3,6 +3,8 @@ import os
 import shutil
 import sqlite3 as sql
 import subprocess
+import uuid
+from abc import ABC, abstractmethod
 from typing import Literal, Optional, Type, Union
 
 import pyarrow as pa
@@ -10,8 +12,10 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import quivr as qv
 import ray
+from adam_core.observations import SourceCatalog
 from adam_core.propagator.utils import _iterate_chunk_indices
 from adam_core.ray_cluster import initialize_use_ray
+from adam_core.time import Timestamp
 
 from .noise import generate_noise
 from .observatory import Observatory, observatory_to_sorcha_config
@@ -23,7 +27,33 @@ from .populations import (
 )
 
 
-class SorchaOutputBasic(qv.Table):
+class SorchaDerivedOutputs(ABC):
+
+    @abstractmethod
+    def to_source_catalog(
+        self, catalog_id: str, exposure_id: str, observatory_code: str
+    ) -> SourceCatalog:
+        """
+        Convert the Sorcha output to a SourceCatalog.
+
+        Parameters
+        ----------
+        catalog_id : str
+            The ID of the catalog.
+        exposure_id : str
+            The ID of the exposure.
+        observatory_code : str
+            The code of the observatory.
+
+        Returns
+        -------
+        source_catalog : SourceCatalog
+            The source catalog.
+        """
+        pass
+
+
+class SorchaOutputBasic(qv.Table, SorchaDerivedOutputs):
     # TODO: It would be really nice if the basic outputs included the FieldID
     # so that we could match the observations to the pointings
     ObjID = qv.LargeStringColumn()
@@ -42,11 +72,57 @@ class SorchaOutputBasic(qv.Table):
     RangeRate_LTC_km_s = qv.Float64Column()
     Obj_Sun_LTC_km = qv.Float64Column()
 
+    def to_source_catalog(
+        self, catalog_id: str, exposure_id: str, observatory_code: str
+    ) -> SourceCatalog:
+        """
+        Convert the Sorcha output to a SourceCatalog.
 
-class SorchaOutputAll(qv.Table):
+        Parameters
+        ----------
+        catalog_id : str
+            The ID of the catalog.
+        exposure_id : str
+            The ID of the exposure.
+        observatory_code : str
+            The code of the observatory.
 
-    # Some of the commented-out columns can be retroactively
-    # calculated by joining with inputs to sorcha.
+        Returns
+        -------
+        source_catalog : SourceCatalog
+            The source catalog.
+        """
+        num_obs = len(self)
+        obs_ids = [uuid.uuid4().hex for _ in range(num_obs)]
+        catalog_id = pa.repeat(catalog_id, num_obs)
+        exposure_id_arr = pa.repeat(exposure_id, num_obs)
+        observatory_code_arr = pa.repeat(observatory_code, num_obs)
+
+        return SourceCatalog.from_kwargs(
+            id=obs_ids,
+            exposure_id=exposure_id_arr,
+            time=Timestamp.from_mjd(
+                self.fieldMJD_TAI,
+                scale="tai",
+            ),
+            ra=self.RA_deg,
+            dec=self.Dec_deg,
+            ra_sigma=self.astrometricSigma_deg,
+            dec_sigma=self.astrometricSigma_deg,
+            mag=self.trailedSourceMag,
+            mag_sigma=self.trailedSourceMagSigma,
+            observatory_code=observatory_code_arr,
+            filter=self.optFilter,
+            exposure_start_time=Timestamp.from_mjd(
+                self.fieldMJD_TAI,
+                scale="tai",
+            ),
+            object_id=self.ObjID,
+            catalog_id=catalog_id,
+        )
+
+
+class SorchaOutputAll(qv.Table, SorchaDerivedOutputs):
 
     ObjID = qv.LargeStringColumn()
     FieldID = qv.LargeStringColumn()
@@ -58,41 +134,41 @@ class SorchaOutputAll(qv.Table):
     RARateCosDec_deg_day = qv.Float64Column()
     DecTrue_deg = qv.Float64Column()
     DecRate_deg_day = qv.Float64Column()
-    # Obj_Sun_x_LTC_km = qv.Float64Column()
-    # Obj_Sun_y_LTC_km = qv.Float64Column()
-    # Obj_Sun_z_LTC_km = qv.Float64Column()
-    # Obj_Sun_vx_LTC_km_s = qv.Float64Column()
-    # Obj_Sun_vy_LTC_km_s = qv.Float64Column()
-    # Obj_Sun_vz_LTC_km_s = qv.Float64Column()
-    # Obs_Sun_x_km = qv.Float64Column()
-    # Obs_Sun_y_km = qv.Float64Column()
-    # Obs_Sun_z_km = qv.Float64Column()
-    # Obs_Sun_vx_km_s = qv.Float64Column()
-    # Obs_Sun_vy_km_s = qv.Float64Column()
-    # Obs_Sun_vz_km_s = qv.Float64Column()
+    Obj_Sun_x_LTC_km = qv.Float64Column()
+    Obj_Sun_y_LTC_km = qv.Float64Column()
+    Obj_Sun_z_LTC_km = qv.Float64Column()
+    Obj_Sun_vx_LTC_km_s = qv.Float64Column()
+    Obj_Sun_vy_LTC_km_s = qv.Float64Column()
+    Obj_Sun_vz_LTC_km_s = qv.Float64Column()
+    Obs_Sun_x_km = qv.Float64Column()
+    Obs_Sun_y_km = qv.Float64Column()
+    Obs_Sun_z_km = qv.Float64Column()
+    Obs_Sun_vx_km_s = qv.Float64Column()
+    Obs_Sun_vy_km_s = qv.Float64Column()
+    Obs_Sun_vz_km_s = qv.Float64Column()
     phase_deg = qv.Float64Column()
-    # FORMAT = qv.LargeStringColumn()
-    # x = qv.Float64Column()
-    # y = qv.Float64Column()
-    # z = qv.Float64Column()
-    # xdot = qv.Float64Column()
-    # ydot = qv.Float64Column()
-    # zdot = qv.Float64Column()
-    # epochMJD_TDB = qv.Float64Column()
-    # H_filter = qv.Float64Column()
-    # VR_r = qv.Float64Column()
-    # GS = qv.Float64Column()
-    # visitTime = qv.Float64Column()
-    # visitExposureTime = qv.Float64Column()
+    FORMAT = qv.LargeStringColumn()
+    x = qv.Float64Column()
+    y = qv.Float64Column()
+    z = qv.Float64Column()
+    xdot = qv.Float64Column()
+    ydot = qv.Float64Column()
+    zdot = qv.Float64Column()
+    epochMJD_TDB = qv.Float64Column()
+    H_filter = qv.Float64Column()
+    H_r = qv.Float64Column()
+    GS = qv.Float64Column()
+    visitTime = qv.Float64Column()
+    visitExposureTime = qv.Float64Column()
     optFilter = qv.LargeStringColumn()
-    # seeingFwhmGeom_arcsec = qv.Float64Column()
-    # seeingFwhmEff_arcsec = qv.Float64Column()
+    seeingFwhmGeom_arcsec = qv.Float64Column()
+    seeingFwhmEff_arcsec = qv.Float64Column()
     fieldFiveSigmaDepth_mag = qv.Float64Column()
-    # fieldRA_deg = qv.Float64Column()
-    # fieldDec_deg = qv.Float64Column()
-    # rotSkyPos_deg = qv.Float64Column()
-    # observatory_code = qv.LargeStringColumn()
-    # H_r = qv.Float64Column()
+    fieldRA_deg = qv.Float64Column()
+    fieldDec_deg = qv.Float64Column()
+    rotSkyPos_deg = qv.Float64Column()
+    observatory_code = qv.LargeStringColumn()
+    H_r = qv.Float64Column()
     trailedSourceMagTrue = qv.Float64Column()
     PSFMagTrue = qv.Float64Column()
     fiveSigmaDepth_mag = qv.Float64Column()
@@ -105,6 +181,63 @@ class SorchaOutputAll(qv.Table):
     RA_deg = qv.Float64Column()
     Dec_deg = qv.Float64Column()
     Obj_Sun_LTC_km = qv.Float64Column()
+
+    def to_source_catalog(
+        self, catalog_id: str, exposure_id: str, observatory_code: str
+    ) -> SourceCatalog:
+        """
+        Convert the Sorcha output to a SourceCatalog.
+
+        Parameters
+        ----------
+        catalog_id : str
+            The ID of the catalog.
+        exposure_id : str
+            The ID of the exposure.
+        observatory_code : str
+            The code of the observatory (unused here
+            and directly read from the Sorcha output).
+
+        Returns
+        -------
+        source_catalog : SourceCatalog
+            The source catalog.
+        """
+        num_obs = len(self)
+        obs_ids = [uuid.uuid4().hex for _ in range(num_obs)]
+        catalog_id = pa.repeat(catalog_id, num_obs)
+        return SourceCatalog.from_kwargs(
+            id=obs_ids,
+            exposure_id=self.FieldID,
+            time=Timestamp.from_mjd(
+                self.fieldMJD_TAI,
+                scale="tai",
+            ),
+            ra=self.RA_deg,
+            dec=self.Dec_deg,
+            ra_sigma=self.astrometricSigma_deg,
+            dec_sigma=self.astrometricSigma_deg,
+            # Here we use the trailed source mag as the mag.
+            # In the limit where the source is not trailed, this should
+            # approach the PSFMag.
+            mag=self.trailedSourceMag,
+            mag_sigma=self.trailedSourceMagSigma,
+            observatory_code=self.observatory_code,
+            filter=self.optFilter,
+            exposure_start_time=Timestamp.from_mjd(
+                self.fieldMJD_TAI,
+                scale="tai",
+            ),
+            exposure_duration=self.visitExposureTime,
+            # Here we use the seeingFwhmEff_arcsec as the seeing, this will
+            # be a more conservative estimate of the seeing than the
+            # seeingFwhmGeom_arcsec.
+            # See: https://community.lsst.org/t/difference-between-seeingfwhmeff-and-seeingfwhmgeom/8137/2
+            exposure_seeing=self.seeingFwhmEff_arcsec,
+            exposure_depth_5sigma=self.fieldFiveSigmaDepth_mag,
+            object_id=self.ObjID,
+            catalog_id=catalog_id,
+        )
 
 
 class SorchaOutputStats(qv.Table):
