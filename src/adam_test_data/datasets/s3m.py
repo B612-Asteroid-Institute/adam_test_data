@@ -88,7 +88,7 @@ def load_S3M(directory: str) -> SmallBodies:
         # Create orbit IDs for the s3m population
         # There are ~14 million objects in the population so 7 digits should be enough
         orbit_ids = pa.array(
-            [f"s3m{i:07d}" for i in range(id_offset, id_offset + len(s3m_df_i))]
+            [f"S3M_{i:07d}" for i in range(id_offset, id_offset + len(s3m_df_i))]
         )
         orbits_i = Orbits.from_kwargs(
             orbit_id=orbit_ids,
