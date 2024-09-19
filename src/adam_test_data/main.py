@@ -898,16 +898,17 @@ def generate_test_data(
     # Now generate noise observations
     for noise_density in noise_densities:
         # Add noise to the observations
-        sorcha_outputs_noisy = generate_noise(
+        noise_catalog = generate_noise(
             output_dir,
             pointings_filtered,
             observatory,
             noise_density,
+            tag=tag,
             seed=seed,
             chunk_size=chunk_size,
             max_processes=max_processes,
             cleanup=cleanup,
         )
-        noise_files[f"{noise_density:.2f}"] = sorcha_outputs_noisy
+        noise_files[f"{noise_density:.2f}"] = noise_catalog
 
     return sorcha_outputs_file, sorcha_stats_file, noise_files
