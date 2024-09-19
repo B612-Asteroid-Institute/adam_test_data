@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Literal, Optional
 
@@ -68,6 +69,75 @@ class Observatory:
     bright_limit: list[float]
     fov: FieldOfView
     simulation: Simulation
+
+    @classmethod
+    def from_json(cls, file: str) -> "Observatory":
+        """
+        Load an observatofy from a JSON file.
+
+        Parameters
+        ----------
+        file : str
+            The path to the JSON file.
+
+        Returns
+        -------
+        Observatory
+            The observatory object.
+        """
+        with open(file, "r") as f:
+            data = json.load(f)
+
+        code = data["code"]
+        filters = data["filters"]
+        main_filter = data["main_filter"]
+        bright_limit = data["bright_limit"]
+        fov = FieldOfView(
+            camera_model=data["fov"]["camera_model"],
+            circle_radius=data["fov"]["circle_radius"],
+            fill_factor=data["fov"]["fill_factor"],
+        )
+        simulation = Simulation(
+            ang_fov=data["simulation"]["ang_fov"],
+            fov_buffer=data["simulation"]["fov_buffer"],
+        )
+
+        return Observatory(
+            code=code,
+            filters=filters,
+            main_filter=main_filter,
+            bright_limit=bright_limit,
+            fov=fov,
+            simulation=simulation,
+        )
+
+    def to_json(self, file: str) -> None:
+        """
+        Save the observatory to a JSON file.
+
+        Parameters
+        ----------
+        file : str
+            The path to the JSON file.
+        """
+        data = {
+            "code": self.code,
+            "filters": self.filters,
+            "main_filter": self.main_filter,
+            "bright_limit": self.bright_limit,
+            "fov": {
+                "camera_model": self.fov.camera_model,
+                "circle_radius": self.fov.circle_radius,
+                "fill_factor": self.fov.fill_factor,
+            },
+            "simulation": {
+                "ang_fov": self.simulation.ang_fov,
+                "fov_buffer": self.simulation.fov_buffer,
+            },
+        }
+
+        with open(file, "w") as f:
+            json.dump(data, f, indent=4)
 
 
 def observatory_to_sorcha_config(

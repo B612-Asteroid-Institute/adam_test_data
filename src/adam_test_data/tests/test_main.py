@@ -12,7 +12,7 @@ from adam_core.orbits import Orbits
 from adam_core.time import Timestamp
 
 from ..main import generate_test_data, sorcha, write_sorcha_inputs
-from ..observatory import FieldOfView, Observatory, Simulation
+from ..observatories import FieldOfView, Observatory, Simulation
 from ..pointings import Pointings
 from ..populations import PhotometricProperties, SmallBodies
 

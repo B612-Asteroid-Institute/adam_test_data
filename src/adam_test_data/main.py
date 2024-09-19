@@ -18,7 +18,7 @@ from adam_core.ray_cluster import initialize_use_ray
 from adam_core.time import Timestamp
 
 from .noise import generate_noise
-from .observatory import Observatory, observatory_to_sorcha_config
+from .observatories import Observatory, observatory_to_sorcha_config
 from .pointings import Pointings
 from .populations import (
     SmallBodies,
