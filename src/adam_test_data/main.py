@@ -595,7 +595,7 @@ def sorcha_worker(
     )
 
     # Create a subdirectory for this chunk
-    chunk_base = f"chunk_{orbit_ids_indices[0]:08d}_{orbit_ids_indices[1]:08d}"
+    chunk_base = f"{orbit_ids_indices[0]:08d}_{orbit_ids_indices[1]:08d}"
     output_dir_chunk = os.path.join(output_dir, chunk_base)
 
     catalog = sorcha(
@@ -612,7 +612,7 @@ def sorcha_worker(
     )
 
     # Serialize the output tables to parquet and return the paths
-    catalog_file = os.path.join(output_dir, f"{chunk_base}_{tag}.parquet")
+    catalog_file = os.path.join(output_dir, f"{tag}_{chunk_base}.parquet")
     catalog.to_parquet(catalog_file)
 
     return catalog_file
@@ -680,7 +680,7 @@ def run_sorcha(
     os.makedirs(output_dir, exist_ok=True)
 
     catalog = SourceCatalog.empty()
-    catalog_file = os.path.join(output_dir, f"{tag}.parquet")
+    catalog_file = os.path.abspath(os.path.join(output_dir, f"{tag}.parquet"))
     catalog.to_parquet(catalog_file)
 
     # Create a Parquet writer for the output catalog
@@ -773,7 +773,7 @@ def generate_test_data(
     observatory: Observatory,
     noise_densities: Optional[list[float]] = None,
     time_range: Optional[list[float]] = None,
-    tag: str = "sorcha",
+    tag: Optional[str] = None,
     overwrite: bool = True,
     randomization: bool = True,
     output_columns: Literal["basic", "all"] = "all",
@@ -802,7 +802,8 @@ def generate_test_data(
     time_range : list[float], optional
         The time range to filter the pointings by, by default None.
     tag : str, optional
-        The tag to use for the output files, by default "sorcha".
+        The tag to use for the output files and the catalog ID. If None, the tag will be
+        generated from the pointings name, observatory code, and small bodies name.
     randomization : bool, optional
         Ramdomize the photometry and astrometry using the calculated uncertainties.
     output_columns : Literal["basic", "all"], optional
@@ -837,6 +838,9 @@ def generate_test_data(
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
+    if tag is None:
+        tag = f"{pointings.name}_{observatory.code}_{small_bodies.name}"
+
     # Run sorcha
     catalog_file = run_sorcha(
         output_dir,
@@ -862,13 +866,15 @@ def generate_test_data(
 
     # Now generate noise observations
     for noise_density in noise_densities:
+        tag_noise = f"{tag}_noise_{noise_density:.3f}"
+
         # Add noise to the observations
         noise_catalog = generate_noise(
             output_dir,
             pointings_filtered,
             observatory,
             noise_density,
-            tag=tag,
+            tag=tag_noise,
             seed=seed,
             chunk_size=chunk_size,
             max_processes=max_processes,

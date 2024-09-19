@@ -323,12 +323,16 @@ def noise_worker(
         pointings_chunk,
         observatory,
         density,
+        tag=tag,
         seed=seed,
     )
 
+    if tag is None:
+        tag = f"noise_{density:.3f}"
+
     noise_file = os.path.join(
         out_dir,
-        f"noise_{pointing_ids_indices[0]:08d}_{pointing_ids_indices[1]:08d}.parquet",
+        f"{tag}_{pointing_ids_indices[0]:08d}_{pointing_ids_indices[1]:08d}.parquet",
     )
     noise.to_parquet(noise_file)
     return noise_file
@@ -386,7 +390,10 @@ def generate_noise(
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    noise_file = os.path.join(output_dir, f"noise_{density:.3f}.parquet")
+    if tag is None:
+        tag = f"noise_{density:.3f}"
+
+    noise_file = os.path.abspath(os.path.join(output_dir, f"{tag}.parquet"))
     noise_catalog.to_parquet(noise_file)
     noise_file_writer = pq.ParquetWriter(noise_file, SourceCatalog.schema)
 

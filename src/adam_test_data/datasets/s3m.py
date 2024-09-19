@@ -78,7 +78,7 @@ def load_S3M(directory: str) -> SmallBodies:
     """
     s3m_files = sorted(glob.glob(os.path.join(directory, "*.s3m")))
 
-    s3m = SmallBodies.empty()
+    s3m = SmallBodies.empty(name="S3M")
     id_offset = 0
     for s3m_file in s3m_files:
         print(f"Loading {s3m_file}")
@@ -115,6 +115,7 @@ def load_S3M(directory: str) -> SmallBodies:
         s3m_i = SmallBodies.from_kwargs(
             orbits=orbits_i,
             properties=photometric_properties_i,
+            name="S3M",
         )
 
         s3m = qv.concatenate([s3m, s3m_i])

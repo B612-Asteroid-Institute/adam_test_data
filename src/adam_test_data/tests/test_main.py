@@ -42,7 +42,9 @@ def small_bodies() -> SmallBodies:
         H_mf=[18.61],
     )
 
-    return SmallBodies.from_kwargs(orbits=orbits, properties=properties)
+    return SmallBodies.from_kwargs(
+        orbits=orbits, properties=properties, name="TestSmallBodies"
+    )
 
 
 @pytest.fixture
@@ -112,6 +114,7 @@ def pointings() -> Pointings:
         ],
         rotSkyPos_deg=pa.repeat(0.0, num_visits),
         observatory_code=pa.repeat("X05", num_visits),
+        name="TestPointings",
     )
 
 
