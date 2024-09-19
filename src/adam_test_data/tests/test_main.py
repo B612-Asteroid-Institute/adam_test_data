@@ -208,7 +208,7 @@ def test_generate_test_data_no_noise(
 
     with tempfile.TemporaryDirectory() as out_dir:
 
-        catalog_file, noise_files = generate_test_data(
+        catalog_file, noise_files, summary = generate_test_data(
             out_dir,
             small_bodies,
             pointings,
@@ -222,11 +222,15 @@ def test_generate_test_data_no_noise(
 
         catalog = SourceCatalog.from_parquet(catalog_file)
         assert len(catalog) == 6
-        assert len(os.listdir(out_dir)) == 1  # There should be only two files
+        assert len(os.listdir(out_dir)) == 2  # There should be only two files
+
+        assert len(summary) == 1
+        assert pc.all(pc.is_null(summary.noise_file)).as_py()
+        assert pc.all(pc.is_null(summary.noise_density)).as_py()
 
     with tempfile.TemporaryDirectory() as out_dir:
 
-        catalog_file, noise_files = generate_test_data(
+        catalog_file, noise_files, summary = generate_test_data(
             out_dir,
             small_bodies,
             pointings,
@@ -242,9 +246,13 @@ def test_generate_test_data_no_noise(
         catalog = SourceCatalog.from_parquet(catalog_file)
         assert len(catalog) == 6
         assert len(noise_files) == 0
-        assert len(os.listdir(out_dir)) == 3  # If we are not cleaning up
+        assert len(os.listdir(out_dir)) == 4  # If we are not cleaning up
         # then we expect there to be more files including the chunked partition
         # files and also a directory for those chunks
+
+        assert len(summary) == 1
+        assert pc.all(pc.is_null(summary.noise_file)).as_py()
+        assert pc.all(pc.is_null(summary.noise_density)).as_py()
 
 
 def test_generate_test_data_with_noise(
@@ -253,7 +261,7 @@ def test_generate_test_data_with_noise(
 
     with tempfile.TemporaryDirectory() as out_dir:
 
-        catalog_file, noise_files = generate_test_data(
+        catalog_file, noise_files, summary = generate_test_data(
             out_dir,
             small_bodies,
             pointings,
@@ -272,8 +280,8 @@ def test_generate_test_data_with_noise(
         assert len(noise_files) == 2
         assert "100.00" in noise_files
         assert "1000.00" in noise_files
-        assert len(os.listdir(out_dir)) == 3  # There should be only 3 files
-        # 1 parquet file for sorcha outputs and 2 for noise outputs.
+        assert len(os.listdir(out_dir)) == 4  # There should be only 4 files
+        # 2 parquet file for the catalog and summary and 2 for noise outputs.
 
         noise100 = SourceCatalog.from_parquet(noise_files["100.00"])
         expected_noise_detections = 6 * 100 * 1.75**2 * np.pi
@@ -284,3 +292,6 @@ def test_generate_test_data_with_noise(
         expected_noise_detections = 6 * 1000 * 1.75**2 * np.pi
         assert len(noise1000) >= 0.9 * expected_noise_detections
         assert len(noise1000) <= 1.1 * expected_noise_detections
+
+        assert len(summary) == 2
+        assert pc.all(pc.equal(summary.noise_density, pa.array([100.00, 1000.00])))
