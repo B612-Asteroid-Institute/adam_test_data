@@ -266,6 +266,34 @@ class TestDataSummary(qv.Table):
     noise_file = qv.StringColumn(nullable=True)
 
 
+def remove_quotes(file_path: str) -> None:
+    """
+    Remove quotes from a CSV file.
+
+    Parameters
+    ----------
+    file_path : str
+    """
+    # Create a temporary file path
+    temp_file_path = file_path + ".tmp"
+
+    # Open the original file for reading in binary mode
+    # and the temporary file for writing in binary mode
+    with open(file_path, "rb") as infile, open(temp_file_path, "wb") as outfile:
+        while True:
+            # Read a chunk of data (e.g., 64KB)
+            chunk = infile.read(65536)
+            if not chunk:
+                break
+            # Remove quote characters
+            chunk = chunk.replace(b'"', b"")
+            # Write the processed chunk to the temporary file
+            outfile.write(chunk)
+
+    # Replace the original file with the temporary file
+    os.replace(temp_file_path, file_path)
+
+
 def write_sorcha_inputs(
     output_dir: str,
     small_bodies: SmallBodies,
@@ -342,75 +370,25 @@ def write_sorcha_inputs(
     else:
         raise ValueError("format must be either 'csv' or 'whitespace'")
 
-    # Normally, it should be as easy as this:
-    # pa.csv.write_csv(
-    #     orbits_table,
-    #     orbit_file,
-    #     write_options=pa.csv.WriteOptions(
-    #         include_header=True, delimiter=delimiter, quoting_style="none"
-    #     ),
-    # )
-    # pa.csv.write_csv(
-    #     properties_table,
-    #     properties_file,
-    #     write_options=pa.csv.WriteOptions(
-    #         include_header=True,
-    #         delimiter=delimiter,
-    #         quoting_style="none",
-    #     ),
-    # )
-    # But sorcha doesn't know how to handle quotes in the header
-    # and the quoting_style="none" only applies to the row data and
-    # not the header. That is, the header names will remain surrounded
-    # by double quotes.
-    # See: https://github.com/apache/arrow/issues/41239
+    pa.csv.write_csv(
+        orbits_table,
+        orbit_file,
+        write_options=pa.csv.WriteOptions(
+            include_header=True, delimiter=delimiter, quoting_style="needed"
+        ),
+    )
+    remove_quotes(orbit_file)
 
-    # Instead we write the CSVs to a string buffer
-    # and then strip the quotes from the header.
-    #
-    # Nevermind, this also doesn't work because object IDs can have
-    # "structural characters". Here is an example error if you
-    # set quoting_style="none":
-    # CSV values may not contain structural characters
-    # if quoting style is "None". See RFC4180. Invalid value: (2013 RR165)
-    #
-    # Furthermore, sorcha can't handle quotes in the data either...
-    # Instead we use the "needed" quoting style which adds quotes to the
-    # row data and the header. We then strip the quotes from everything with
-    # a replace call.
-    with pa.BufferOutputStream() as stream:
-        pa.csv.write_csv(
-            orbits_table,
-            stream,
-            write_options=pa.csv.WriteOptions(
-                include_header=True, delimiter=delimiter, quoting_style="needed"
-            ),
-        )
-        orbits_csv = stream.getvalue().to_pybytes().decode("utf-8")
-
-        # Strip the quotes from the header and body
-        orbits_csv = orbits_csv.replace('"', "")
-
-        with open(orbit_file, "w") as f:
-            f.write(orbits_csv)
-
-    with pa.BufferOutputStream() as stream:
-        pa.csv.write_csv(
-            properties_table,
-            stream,
-            write_options=pa.csv.WriteOptions(
-                include_header=True,
-                delimiter=delimiter,
-                quoting_style="needed",
-            ),
-        )
-        properties_csv = stream.getvalue().to_pybytes().decode("utf-8")
-
-        # Strip the quotes from the header and body
-        properties_csv = properties_csv.replace('"', "")
-
-        with open(properties_file, "w") as f:
-            f.write(properties_csv)
+    pa.csv.write_csv(
+        properties_table,
+        properties_file,
+        write_options=pa.csv.WriteOptions(
+            include_header=True,
+            delimiter=delimiter,
+            quoting_style="needed",
+        ),
+    )
+    remove_quotes(properties_file)
 
     paths["orbits"] = orbit_file
     paths["photometric_properties"] = properties_file
