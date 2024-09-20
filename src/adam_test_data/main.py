@@ -265,6 +265,57 @@ class TestDataSummary(qv.Table):
     catalog_file = qv.StringColumn()
     noise_file = qv.StringColumn(nullable=True)
 
+    def load_test_data(
+        self, catalog_id: str, noise_density: Optional[float] = None
+    ) -> SourceCatalog:
+        """
+        Convenience method to load the test data for a given catalog_id and noise_density.
+
+        Parameters
+        ----------
+        catalog_id : str
+            The ID of the catalog.
+        noise_density : float, optional
+            The noise observations at a particular density
+            to load with the catalog, by default None.
+
+        Returns
+        -------
+        catalog : SourceCatalog
+            The test data catalog (with noise if noise_density is not None).
+        """
+        catalog_summary = self.select("catalog_id", catalog_id)
+        if len(catalog_summary) == 0:
+            err = (
+                f"No catalog found for catalog_id={catalog_id}\n"
+                "Options are:\n"
+                f"{self.catalog_id.unique().to_pylist()}"
+            )
+            raise ValueError(err)
+
+        catalog = SourceCatalog.from_parquet(catalog_summary.catalog_file[0].as_py())
+
+        if noise_density is not None:
+            catalog_summary_noise = catalog_summary.select(
+                "noise_density", noise_density
+            )
+
+            if len(catalog_summary_noise) == 0:
+                err = (
+                    f"No noise catalog found for catalog_id={catalog_id}"
+                    f" and noise_density={noise_density}\n"
+                    "Options are:\n"
+                    f"{catalog_summary.noise_density.unique().to_pylist()}"
+                )
+                raise ValueError(err)
+
+            noise_catalog = SourceCatalog.from_parquet(
+                catalog_summary_noise.noise_file[0].as_py()
+            )
+            catalog = qv.concatenate([catalog, noise_catalog])
+
+        return catalog
+
 
 def remove_quotes(file_path: str) -> None:
     """

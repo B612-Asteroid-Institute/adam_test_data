@@ -75,4 +75,8 @@ catalog_file, noise_files, summary = generate_test_data(
     chunk_size=500, 
     cleanup=True
 )
+
+# Load in the generated test data with the desired noise density
+catalog = summary.load_test_data("NSC_W84_S3M", 100)
+
 ```
