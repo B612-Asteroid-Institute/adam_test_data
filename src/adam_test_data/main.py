@@ -822,6 +822,7 @@ def generate_test_data(
     output_columns: Literal["basic", "all"] = "all",
     seed: Optional[int] = None,
     chunk_size: int = 1000,
+    noise_chunk_size: int = 100,
     max_processes: Optional[int] = 1,
     cleanup: bool = True,
 ) -> tuple[str, dict[str, str], TestDataSummary]:
@@ -855,8 +856,9 @@ def generate_test_data(
         The seed to use for generating noise observations, by default None.
     chunk_size : int, optional
         The number of small bodies to process in each chunk, by default 1000.
-        Also, the number of pointings to process in each chunk when
-        generating noise observations.
+    noise_chunk_size : int, optional
+        The number of pointings to process in each chunk when
+        generating noise observations, by default 100.
     max_processes : Optional[int], optional
         The maximum number of processes to use, by default 1.
     cleanup : bool, optional
@@ -917,7 +919,7 @@ def generate_test_data(
                 noise_density,
                 tag=tag_noise,
                 seed=seed,
-                chunk_size=chunk_size,
+                chunk_size=noise_chunk_size,
                 max_processes=max_processes,
                 cleanup=cleanup,
             )
