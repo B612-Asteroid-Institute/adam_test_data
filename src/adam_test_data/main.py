@@ -13,7 +13,7 @@ import pyarrow.parquet as pq
 import quivr as qv
 import ray
 from adam_core.observations import SourceCatalog
-from adam_core.propagator.utils import _iterate_chunk_indices
+from adam_core.utils.iter import _iterate_chunk_indices
 from adam_core.ray_cluster import initialize_use_ray
 from adam_core.time import Timestamp
 
