@@ -13,9 +13,9 @@ import pyarrow.parquet as pq
 import quivr as qv
 import ray
 from adam_core.observations import SourceCatalog
-from adam_core.utils.iter import _iterate_chunk_indices
 from adam_core.ray_cluster import initialize_use_ray
 from adam_core.time import Timestamp
+from adam_core.utils.iter import _iterate_chunk_indices
 
 from .noise import generate_noise
 from .observatories import Observatory, observatory_to_sorcha_config
@@ -532,18 +532,18 @@ def sorcha(
         "run",
         "-c",
         f"{paths['config']}",
-        "-p",
-        f"{paths['photometric_properties']}",
-        "-ob",
-        f"{paths['orbits']}",
-        "-pd",
-        f"{paths['pointings']}",
         "-o",
         f"{output_dir}",
+        "-p",
+        f"{paths['photometric_properties']}",
         "-t",
         f"{tag}",
-        "-st",
+        "--st",
         f"{stats_file}",
+        "--ob",
+        f"{paths['orbits']}",
+        "--pd",
+        f"{paths['pointings']}",
     ]
     if overwrite:
         command.append("-f")

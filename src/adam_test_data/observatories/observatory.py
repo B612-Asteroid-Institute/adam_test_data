@@ -178,8 +178,7 @@ def observatory_to_sorcha_config(
             f"Main filter {observatory.main_filter} not in list of filters"
         )
 
-    config = f"""
-# Sorcha Configuration File - ADAM Test Data - {observatory.code}
+    config = f"""# Sorcha Configuration File - ADAM Test Data - {observatory.code}
 
 [INPUT]
 ephemerides_type = ar
