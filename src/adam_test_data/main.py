@@ -19,12 +19,12 @@ from adam_core.utils.iter import _iterate_chunk_indices
 
 from .noise import generate_noise
 from .observatories import Observatory, observatory_to_sorcha_config
-from .pointings import Pointings
 from .populations import (
     SmallBodies,
     orbits_to_sorcha_table,
     photometric_properties_to_sorcha_table,
 )
+from .survey import SorchaPointings, SurveyPointings
 
 
 class SorchaDerivedOutputs(ABC):
@@ -348,14 +348,14 @@ def remove_quotes(file_path: str) -> None:
 def write_sorcha_inputs(
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: Pointings,
+    pointings: SorchaPointings,
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
     format: Literal["csv", "whitespace"] = "csv",
     element_type: Literal["cartesian", "keplerian", "cometary"] = "cartesian",
     orbits_file_name: str = "orbits.csv",
     properties_file_name: str = "properties.csv",
-    pointings_database_name: str = "pointings.db",
+    pointings_database_name: str = "survey_pointings.db",
     sorcha_config_file_name: str = "config.ini",
     randomization: bool = True,
     output_columns: Literal["basic", "all"] = "all",
@@ -384,7 +384,7 @@ def write_sorcha_inputs(
     properties_file_name : str, optional
         The name of the file to write the photometric properties to, by default "properties.csv".
     pointings_database_name : str, optional
-        The name of the SQLite database to write the pointings to, by default "pointings.db".
+        The name of the SQLite database to write the pointings to, by default "survey_pointings.db".
     sorcha_config_file_name : str, optional
         The name of the configuration file to write the observatory to, by default "config.ini".
     randomization : bool, optional
@@ -471,7 +471,7 @@ def write_sorcha_inputs(
 def sorcha(
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: Pointings,
+    pointings: SorchaPointings,
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
     tag: str = "sorcha",
@@ -589,7 +589,7 @@ def sorcha_worker(
     orbit_ids_indices: tuple[int, int],
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: Pointings,
+    pointings: SorchaPointings,
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
     tag: str = "sorcha",
@@ -611,7 +611,7 @@ def sorcha_worker(
         The directory to write the Sorcha output to.
     small_bodies : SmallBodies
         The small body population to run Sorcha on.
-    pointings : Pointings
+    pointings : SorchaPointings
         The pointings to run Sorcha on.
     observatory : Observatory
         The observatory to run Sorcha on.
@@ -668,7 +668,7 @@ sorcha_worker_remote.options(num_cpus=1)
 def run_sorcha(
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: Pointings,
+    pointings: SorchaPointings,
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
     tag: str = "sorcha",
@@ -812,7 +812,7 @@ def run_sorcha(
 def generate_test_data(
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: Pointings,
+    survey_pointings: SurveyPointings,
     observatory: Observatory,
     noise_densities: Optional[list[float]] = None,
     time_range: Optional[list[float]] = None,
@@ -835,7 +835,7 @@ def generate_test_data(
         The directory to write the test data to.
     small_bodies : SmallBodies
         The small body population to generate test data for.
-    pointings : Pointings
+    pointings : SurveyPointings
         The pointings to generate test data for.
     observatory : Observatory
         The observatory to generate test data for.
@@ -871,26 +871,28 @@ def generate_test_data(
     """
     # Lets filter the pointings here first
     if time_range is not None:
-        pointings_filtered = pointings.apply_mask(
+        pointings_filtered = survey_pointings.apply_mask(
             pc.and_(
-                pc.greater_equal(pointings.observationStartMJD_TAI, time_range[0]),
-                pc.less_equal(pointings.observationStartMJD_TAI, time_range[1]),
+                pc.greater_equal(
+                    survey_pointings.observationStartMJD_TAI, time_range[0]
+                ),
+                pc.less_equal(survey_pointings.observationStartMJD_TAI, time_range[1]),
             )
         )
     else:
-        pointings_filtered = pointings
+        pointings_filtered = survey_pointings
 
     # Create the output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
     if tag is None:
-        tag = f"{pointings.name}_{observatory.code}_{small_bodies.name}"
+        tag = f"{survey_pointings.name}_{observatory.code}_{small_bodies.name}"
 
     # Run sorcha
     catalog_file = run_sorcha(
         output_dir,
         small_bodies,
-        pointings_filtered,
+        pointings_filtered.to_sorcha_pointings(),
         observatory,
         time_range=time_range,
         tag=tag,
@@ -927,17 +929,11 @@ def generate_test_data(
 
             test_data_summary_density = TestDataSummary.from_kwargs(
                 catalog_id=[tag],
-                start_time=Timestamp.from_mjd(
-                    pa.array([pc.min(pointings_filtered.observationStartMJD_TAI)]),
-                    scale="tai",
-                ),
-                end_time=Timestamp.from_mjd(
-                    pa.array([pc.max(pointings_filtered.observationStartMJD_TAI)]),
-                    scale="tai",
-                ),
+                start_time=pointings_filtered.exposure_start.min(),
+                end_time=pointings_filtered.exposure_start.max(),
                 num_orbits=[len(small_bodies.orbits)],
                 population_name=[small_bodies.name],
-                pointings_name=[pointings.name],
+                pointings_name=[survey_pointings.name],
                 observatory_code=[observatory.code],
                 noise_density=[noise_density],
                 catalog_file=[catalog_file],
@@ -954,17 +950,11 @@ def generate_test_data(
 
         test_data_summary = TestDataSummary.from_kwargs(
             catalog_id=[tag],
-            start_time=Timestamp.from_mjd(
-                pa.array([pc.min(pointings_filtered.observationStartMJD_TAI)]),
-                scale="tai",
-            ),
-            end_time=Timestamp.from_mjd(
-                pa.array([pc.max(pointings_filtered.observationStartMJD_TAI)]),
-                scale="tai",
-            ),
+            start_time=pointings_filtered.exposure_start.min(),
+            end_time=pointings_filtered.exposure_start.max(),
             num_orbits=[len(small_bodies.orbits)],
             population_name=[small_bodies.name],
-            pointings_name=[pointings.name],
+            pointings_name=[survey_pointings.name],
             observatory_code=[observatory.code],
             noise_density=None,
             catalog_file=[catalog_file],
