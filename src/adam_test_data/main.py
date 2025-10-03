@@ -73,7 +73,7 @@ class SorchaOutputBasic(qv.Table, SorchaDerivedOutputs):
     Obj_Sun_LTC_km = qv.Float64Column()
 
     def to_source_catalog(
-        self, catalog_id: str, exposure_id: str, observatory_code: str
+        self, catalog_id: str, observatory_code: str
     ) -> SourceCatalog:
         """
         Convert the Sorcha output to a SourceCatalog.
@@ -82,8 +82,6 @@ class SorchaOutputBasic(qv.Table, SorchaDerivedOutputs):
         ----------
         catalog_id : str
             The ID of the catalog.
-        exposure_id : str
-            The ID of the exposure.
         observatory_code : str
             The code of the observatory.
 
@@ -92,34 +90,7 @@ class SorchaOutputBasic(qv.Table, SorchaDerivedOutputs):
         source_catalog : SourceCatalog
             The source catalog.
         """
-        num_obs = len(self)
-        obs_ids = [uuid.uuid4().hex for _ in range(num_obs)]
-        catalog_id = pa.repeat(catalog_id, num_obs)
-        exposure_id_arr = pa.repeat(exposure_id, num_obs)
-        observatory_code_arr = pa.repeat(observatory_code, num_obs)
-
-        return SourceCatalog.from_kwargs(
-            id=obs_ids,
-            exposure_id=exposure_id_arr,
-            time=Timestamp.from_mjd(
-                self.fieldMJD_TAI,
-                scale="tai",
-            ),
-            ra=self.RA_deg,
-            dec=self.Dec_deg,
-            ra_sigma=self.astrometricSigma_deg,
-            dec_sigma=self.astrometricSigma_deg,
-            mag=self.trailedSourceMag,
-            mag_sigma=self.trailedSourceMagSigma,
-            observatory_code=observatory_code_arr,
-            filter=self.optFilter,
-            exposure_start_time=Timestamp.from_mjd(
-                self.fieldMJD_TAI,
-                scale="tai",
-            ),
-            object_id=self.ObjID,
-            catalog_id=catalog_id,
-        )
+        raise NotImplementedError("SorchaOutputBasic is not implemented or supported.")
 
 
 class SorchaOutputAll(qv.Table, SorchaDerivedOutputs):
@@ -183,7 +154,7 @@ class SorchaOutputAll(qv.Table, SorchaDerivedOutputs):
     Obj_Sun_LTC_km = qv.Float64Column()
 
     def to_source_catalog(
-        self, catalog_id: str, exposure_id: str, observatory_code: str
+        self, catalog_id: str, observatory_code: str
     ) -> SourceCatalog:
         """
         Convert the Sorcha output to a SourceCatalog.
@@ -192,8 +163,6 @@ class SorchaOutputAll(qv.Table, SorchaDerivedOutputs):
         ----------
         catalog_id : str
             The ID of the catalog.
-        exposure_id : str
-            The ID of the exposure.
         observatory_code : str
             The code of the observatory (unused here
             and directly read from the Sorcha output).
@@ -471,13 +440,12 @@ def write_sorcha_inputs(
 def sorcha(
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: SorchaPointings,
+    pointings: SurveyPointings,
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
     tag: str = "sorcha",
     overwrite: bool = True,
     randomization: bool = True,
-    output_columns: Literal["basic", "all"] = "all",
     cleanup: bool = True,
 ) -> SourceCatalog:
     """
@@ -501,8 +469,6 @@ def sorcha(
         Whether to overwrite existing files, by default False.
     randomization : bool, optional
         Ramdomize the photometry and astrometry using the calculated uncertainties.
-    output_columns : Literal["basic", "all"], optional
-        The columns to output in the Sorcha output, by default "all".
     cleanup : bool, optional
         Whether to delete the input files and output files after running Sorcha.
 
@@ -517,11 +483,11 @@ def sorcha(
     paths = write_sorcha_inputs(
         output_dir,
         small_bodies,
-        pointings,
+        pointings.to_sorcha_pointings(),
         observatory,
         time_range=time_range,
         randomization=randomization,
-        output_columns=output_columns,
+        output_columns="all",
     )
 
     # Note that the stats file is automatically saved in the output directory and with a
@@ -557,10 +523,10 @@ def sorcha(
         output_file = f"{output_dir}/{tag}.csv"
 
         sorcha_output_table: Union[Type[SorchaOutputBasic], Type[SorchaOutputAll]]
-        if output_columns == "basic":
-            sorcha_output_table = SorchaOutputBasic
-        else:
-            sorcha_output_table = SorchaOutputAll
+        # if output_columns == "basic":
+        #     sorcha_output_table = SorchaOutputBasic
+        # else:
+        sorcha_output_table = SorchaOutputAll
 
         # If no ephemerides are found by sorcha it will not generate
         # a csv file for either the simulated observations or
@@ -570,8 +536,76 @@ def sorcha(
             sorcha_outputs = sorcha_output_table.from_csv(output_file)
             source_catalog = sorcha_outputs.to_source_catalog(
                 catalog_id=tag,
-                exposure_id=pointings.observationId[0].as_py(),
                 observatory_code=observatory.code,
+            )
+            source_catalog = qv.defragment(source_catalog)
+
+            # Sorcha doesn't always return times at the requested time so we
+            # replace them with times from the pointings
+            catalog_table = source_catalog.flattened_table()
+            catalog_table_pointings = catalog_table.drop_columns(
+                ["time.days", "time.nanos"]
+            ).join(
+                pointings.flattened_table().select(
+                    ["exposure_id", "exposure_start.days", "exposure_start.nanos"]
+                ),
+                "exposure_id",
+                "exposure_id",
+            )
+
+            source_catalog = SourceCatalog.from_kwargs(
+                id=catalog_table_pointings.column("id").combine_chunks(),
+                exposure_id=catalog_table_pointings.column(
+                    "exposure_id"
+                ).combine_chunks(),
+                time=Timestamp.from_kwargs(
+                    days=catalog_table_pointings.column(
+                        "exposure_start.days"
+                    ).combine_chunks(),
+                    nanos=catalog_table_pointings.column(
+                        "exposure_start.nanos"
+                    ).combine_chunks(),
+                    scale=pointings.exposure_start.scale,
+                )
+                .add_seconds(
+                    pc.multiply(
+                        catalog_table_pointings.column(
+                            "exposure_duration"
+                        ).combine_chunks(),
+                        0.5,
+                    )
+                )
+                .rescale("utc"),
+                ra=catalog_table_pointings.column("ra").combine_chunks(),
+                dec=catalog_table_pointings.column("dec").combine_chunks(),
+                ra_sigma=catalog_table_pointings.column("ra_sigma").combine_chunks(),
+                dec_sigma=catalog_table_pointings.column("dec_sigma").combine_chunks(),
+                mag=catalog_table_pointings.column("mag").combine_chunks(),
+                mag_sigma=catalog_table_pointings.column("mag_sigma").combine_chunks(),
+                observatory_code=catalog_table_pointings.column(
+                    "observatory_code"
+                ).combine_chunks(),
+                filter=catalog_table_pointings.column("filter").combine_chunks(),
+                exposure_start_time=Timestamp.from_kwargs(
+                    days=catalog_table_pointings.column(
+                        "exposure_start.days"
+                    ).combine_chunks(),
+                    nanos=catalog_table_pointings.column(
+                        "exposure_start.nanos"
+                    ).combine_chunks(),
+                    scale=pointings.exposure_start.scale,
+                ).rescale("utc"),
+                exposure_duration=catalog_table_pointings.column(
+                    "exposure_duration"
+                ).combine_chunks(),
+                exposure_seeing=catalog_table_pointings.column("exposure_seeing"),
+                exposure_depth_5sigma=catalog_table_pointings.column(
+                    "exposure_depth_5sigma"
+                ).combine_chunks(),
+                object_id=catalog_table_pointings.column("object_id").combine_chunks(),
+                catalog_id=catalog_table_pointings.column(
+                    "catalog_id"
+                ).combine_chunks(),
             )
 
         else:
@@ -589,13 +623,12 @@ def sorcha_worker(
     orbit_ids_indices: tuple[int, int],
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: SorchaPointings,
+    pointings: SurveyPointings,
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
     tag: str = "sorcha",
     overwrite: bool = True,
     randomization: bool = True,
-    output_columns: Literal["basic", "all"] = "all",
     cleanup: bool = True,
 ) -> str:
     """
@@ -611,7 +644,7 @@ def sorcha_worker(
         The directory to write the Sorcha output to.
     small_bodies : SmallBodies
         The small body population to run Sorcha on.
-    pointings : SorchaPointings
+    pointings : SurveyPointings
         The pointings to run Sorcha on.
     observatory : Observatory
         The observatory to run Sorcha on.
@@ -623,8 +656,6 @@ def sorcha_worker(
         Whether to overwrite existing files, by default False.
     randomization : bool, optional
         Ramdomize the photometry and astrometry using the calculated uncertainties.
-    output_columns : Literal["basic", "all"], optional
-        The columns to output in the Sorcha output, by default "all".
 
     Returns
     -------
@@ -650,7 +681,6 @@ def sorcha_worker(
         tag=tag,
         overwrite=overwrite,
         randomization=randomization,
-        output_columns=output_columns,
         cleanup=cleanup,
     )
 
@@ -668,13 +698,12 @@ sorcha_worker_remote.options(num_cpus=1)
 def run_sorcha(
     output_dir: str,
     small_bodies: SmallBodies,
-    pointings: SorchaPointings,
+    pointings: SurveyPointings,
     observatory: Observatory,
     time_range: Optional[list[float]] = None,
     tag: str = "sorcha",
     overwrite: bool = True,
     randomization: bool = True,
-    output_columns: Literal["basic", "all"] = "all",
     chunk_size: int = 1000,
     max_processes: Optional[int] = 1,
     cleanup: bool = True,
@@ -700,8 +729,6 @@ def run_sorcha(
         Whether to overwrite existing files, by default False.
     randomization : bool, optional
         Ramdomize the photometry and astrometry using the calculated uncertainties.
-    output_columns : Literal["basic", "all"], optional
-        The columns to output in the Sorcha output, by default "all".
     chunk_size : int, optional
         The number of small bodies to process in each chunk, by default 1000.
     max_processes : Optional[int], optional
@@ -757,7 +784,6 @@ def run_sorcha(
                     tag=tag,
                     overwrite=overwrite,
                     randomization=randomization,
-                    output_columns=output_columns,
                     cleanup=cleanup,
                 )
             )
@@ -796,7 +822,6 @@ def run_sorcha(
                 tag=tag,
                 overwrite=overwrite,
                 randomization=randomization,
-                output_columns=output_columns,
                 cleanup=cleanup,
             )
 
@@ -819,7 +844,6 @@ def generate_test_data(
     tag: Optional[str] = None,
     overwrite: bool = True,
     randomization: bool = True,
-    output_columns: Literal["basic", "all"] = "all",
     seed: Optional[int] = None,
     chunk_size: int = 1000,
     noise_chunk_size: int = 100,
@@ -850,8 +874,6 @@ def generate_test_data(
         generated from the pointings name, observatory code, and small bodies name.
     randomization : bool, optional
         Ramdomize the photometry and astrometry using the calculated uncertainties.
-    output_columns : Literal["basic", "all"], optional
-        The columns to output in the Sorcha output, by default "all".
     seed : Optional[int], optional
         The seed to use for generating noise observations, by default None.
     chunk_size : int, optional
@@ -892,13 +914,12 @@ def generate_test_data(
     catalog_file = run_sorcha(
         output_dir,
         small_bodies,
-        pointings_filtered.to_sorcha_pointings(),
+        pointings_filtered,
         observatory,
         time_range=time_range,
         tag=tag,
         overwrite=overwrite,
         randomization=randomization,
-        output_columns=output_columns,
         chunk_size=chunk_size,
         max_processes=max_processes,
         cleanup=cleanup,
