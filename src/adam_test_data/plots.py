@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
+import numpy.typing as npt
 import plotly.graph_objects as go
 from adam_core.coordinates import CartesianCoordinates, transform_coordinates
 from adam_core.coordinates.origin import OriginCodes
@@ -12,9 +13,15 @@ from .survey import Survey, SurveyFootprint, SurveyPointings
 __all__ = ["plot_survey_footprint", "plot_survey_pointings", "plot_night_sky_evolution"]
 
 
-def _create_individual_exposure_groups(exposure_ids, ra, dec, filters, times_mjd):
+def _create_individual_exposure_groups(
+    exposure_ids: list[str],
+    ra: npt.NDArray[np.float64],
+    dec: npt.NDArray[np.float64],
+    filters: list[str],
+    times_mjd: npt.NDArray[np.float64],
+) -> dict[str, dict[str, Any]]:
     """Create one group per exposure."""
-    groups = {}
+    groups: dict[str, dict[str, Any]] = {}
 
     # Ensure times_mjd is numpy array
     if not isinstance(times_mjd, np.ndarray):
@@ -41,10 +48,15 @@ def _create_individual_exposure_groups(exposure_ids, ra, dec, filters, times_mjd
 
 
 def _create_time_bundled_groups(
-    exposure_ids, ra, dec, filters, times_mjd, bundle_minutes
-):
+    exposure_ids: list[str],
+    ra: npt.NDArray[np.float64],
+    dec: npt.NDArray[np.float64],
+    filters: list[str],
+    times_mjd: npt.NDArray[np.float64],
+    bundle_minutes: float,
+) -> dict[str, dict[str, Any]]:
     """Bundle exposures within time windows."""
-    groups = {}
+    groups: dict[str, dict[str, Any]] = {}
 
     # Ensure times_mjd is numpy array
     if not isinstance(times_mjd, np.ndarray):
@@ -57,7 +69,7 @@ def _create_time_bundled_groups(
     # Create time bins
     bundle_days = bundle_minutes / (24 * 60)  # Convert to days
 
-    current_group = []
+    current_group: list[int] = []
     group_start_time = sorted_times[0]
     group_counter = 1
 
@@ -102,8 +114,15 @@ def _create_time_bundled_groups(
 
 
 def _save_time_group(
-    groups, indices, group_num, exposure_ids, ra, dec, filters, times_mjd
-):
+    groups: dict[str, dict[str, Any]],
+    indices: list[int],
+    group_num: int,
+    exposure_ids: list[str],
+    ra: npt.NDArray[np.float64],
+    dec: npt.NDArray[np.float64],
+    filters: list[str],
+    times_mjd: npt.NDArray[np.float64],
+) -> None:
     """Save a time group."""
     group_name = f"Group {group_num:02d}"
 
@@ -121,9 +140,9 @@ def _save_time_group(
     }
 
 
-def _get_filter_colors(filters):
+def _get_filter_colors(filters: list[str]) -> list[str]:
     """Get colors for different filters."""
-    filter_colors = {
+    filter_colors: dict[str, str] = {
         "u": "purple",
         "g": "blue",
         "r": "red",
@@ -136,7 +155,9 @@ def _get_filter_colors(filters):
     return [filter_colors.get(f.lower(), "gray") for f in filters]
 
 
-def _create_fov_circle(ra_center, dec_center, radius_deg, n_points=30):
+def _create_fov_circle(
+    ra_center: float, dec_center: float, radius_deg: float, n_points: int = 30
+) -> Optional[npt.NDArray[np.float64]]:
     """Create FOV circle points using spherical trigonometry."""
     try:
         # Convert to radians
@@ -186,7 +207,7 @@ def plot_survey_footprint(
     survey_footprint: SurveyFootprint,
     fov_radius_deg: float = 1.5,
     max_circles: Optional[int] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> go.Figure:
     """
     Plot survey footprint with FOV circles around each pixel center.
@@ -667,7 +688,13 @@ def plot_night_sky_evolution(
     observation_times_mjd = night_mjd + sunset_offset + time_offsets_days
 
     # Helper function to filter footprint by zenith angle
-    def get_visible_footprint_with_zenith(mjd_time):
+    def get_visible_footprint_with_zenith(
+        mjd_time: float,
+    ) -> tuple[
+        Optional[npt.NDArray[np.float64]],
+        Optional[npt.NDArray[np.float64]],
+        Optional[npt.NDArray[np.float64]],
+    ]:
         time_stamp = Timestamp.from_mjd([mjd_time], scale="utc")
         observatory = Observers.from_code(observatory_code, time_stamp)
 
@@ -720,6 +747,10 @@ def plot_night_sky_evolution(
             )
         else:
             # Create color scale based on zenith angle if requested
+            assert lon is not None and lat is not None and zenith is not None
+            colors: npt.NDArray[np.float64] | str
+            colorscale: str | None
+            colorbar_title: str | None
             if color_by_zenith:
                 colors = zenith
                 colorscale = "Viridis_r"  # Reversed viridis (dark = low zenith = good)
@@ -748,12 +779,8 @@ def plot_night_sky_evolution(
                         "Zenith: %{customdata[2]:.1f}°<br>"
                         "<extra></extra>"
                     ),
-                    customdata=(
-                        np.column_stack(
-                            [(180.0 - lon) % 360.0, lat, zenith]  # Convert back to RA
-                        )
-                        if lon is not None
-                        else None
+                    customdata=np.column_stack(
+                        [(180.0 - lon) % 360.0, lat, zenith]  # Convert back to RA
                     ),
                 )
             )
@@ -809,14 +836,18 @@ def plot_night_sky_evolution(
                 )
             else:
                 # Create color scale
+                assert lon is not None and lat is not None and zenith is not None
+                colors_anim: npt.NDArray[np.float64] | str
+                colorscale_anim: str | None
+                colorbar_anim: dict[str, str] | None
                 if color_by_zenith:
-                    colors = zenith
-                    colorscale = "Viridis_r"
-                    colorbar = dict(title="Zenith Angle (°)")
+                    colors_anim = zenith
+                    colorscale_anim = "Viridis_r"
+                    colorbar_anim = dict(title="Zenith Angle (°)")
                 else:
-                    colors = "blue"
-                    colorscale = None
-                    colorbar = None
+                    colors_anim = "blue"
+                    colorscale_anim = None
+                    colorbar_anim = None
 
                 frame_data = go.Scattergeo(
                     lon=lon,
@@ -824,9 +855,9 @@ def plot_night_sky_evolution(
                     mode="markers",
                     marker=dict(
                         size=8,
-                        color=colors,
-                        colorscale=colorscale,
-                        colorbar=colorbar,
+                        color=colors_anim,
+                        colorscale=colorscale_anim,
+                        colorbar=colorbar_anim,
                         opacity=0.7,
                         line=dict(width=0.5, color="white"),
                         cmin=0,  # Fix color scale range

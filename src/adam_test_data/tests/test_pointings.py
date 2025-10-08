@@ -4,13 +4,13 @@ from typing import Generator
 
 import pytest
 
-from ..pointings import Pointings
+from ..survey import SorchaPointings
 
 
 @pytest.fixture
-def pointings() -> Pointings:
+def pointings() -> SorchaPointings:
 
-    pointings = Pointings.from_kwargs(
+    pointings = SorchaPointings.from_kwargs(
         observationId=[
             "c4d_120923_034041_ooi_z_a1",
             "c4d_120923_052321_ooi_r_a1",
@@ -84,11 +84,11 @@ def pointings_db() -> Generator[str, None, None]:
     yield temp_db.name
 
 
-def test_pointings_to_from_sql(pointings: Pointings, pointings_db: str) -> None:
+def test_pointings_to_from_sql(pointings: SorchaPointings, pointings_db: str) -> None:
     # Test that we can save and load the pointings table to and from an SQLite database.
     con = sql.connect(pointings_db)
     pointings.to_sql(con, table_name="test_pointings")
 
-    pointings_from_sql = Pointings.from_sql(con, table_name="test_pointings")
+    pointings_from_sql = SorchaPointings.from_sql(con, table_name="test_pointings")
 
     assert pointings == pointings_from_sql

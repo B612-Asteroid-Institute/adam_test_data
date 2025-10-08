@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import pyarrow as pa
 from adam_core.coordinates import KeplerianCoordinates
@@ -10,7 +11,7 @@ from ..populations import PhotometricProperties, SmallBodies
 
 
 def color_distribution_neos(
-    pv: np.ndarray, Hv: np.ndarray, seed: int = 42
+    pv: npt.NDArray[np.float64], Hv: npt.NDArray[np.float64], seed: int = 42
 ) -> PhotometricProperties:
     """
     Create a color distribution for NEOs drawn from the NEOMOD model.

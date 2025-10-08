@@ -1,5 +1,6 @@
 import sqlite3 as sql
 from dataclasses import dataclass
+from typing import Optional
 
 import healpy as hp
 import numpy as np
@@ -233,7 +234,7 @@ def calculate_zenith_angle(
     )
     zenith_vector = obs_coords.r_hat[0]
     cos_zenith = np.dot(survey_footprint.r, zenith_vector)
-    zenith_distances = np.degrees(np.arccos(cos_zenith))
+    zenith_distances: npt.NDArray[np.float64] = np.degrees(np.arccos(cos_zenith))
 
     return zenith_distances
 
@@ -286,7 +287,7 @@ def select_footprint_for_night(
     fields_per_night: int,
     visits_per_night: int,
     max_zenith_angle: float,
-):
+) -> SurveyFootprint:
     """
     Given the survey footprint, the observation times for this night and the number of visits that need to be made
     to each field within the night, select the fields that need to be observed for this night.T
@@ -341,8 +342,12 @@ def select_footprint_for_night(
 
 
 def simulate_seeing(
-    five_sigma_depth, base_seeing=0.7, seeing_std=0.5, depth_correlation=-0.5, seed=None
-):
+    five_sigma_depth: npt.NDArray[np.float64],
+    base_seeing: float = 0.7,
+    seeing_std: float = 0.5,
+    depth_correlation: float = -0.5,
+    seed: Optional[int] = None,
+) -> npt.NDArray[np.float64]:
     """
     Simulate seeing correlated with 5-sigma depth.
 
@@ -376,9 +381,9 @@ def simulate_seeing(
 
     # Convert to seeing values
     seeing = base_seeing + seeing_std * seeing_noise
-    seeing = np.clip(seeing, 0.1, 3.0)
+    seeing_clipped: npt.NDArray[np.float64] = np.clip(seeing, 0.1, 3.0)
 
-    return seeing
+    return seeing_clipped
 
 
 def create_survey_pointings(

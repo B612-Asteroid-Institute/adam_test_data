@@ -17,66 +17,71 @@ Loading in population models:
 ```python
 from adam_test_data.datasets import load_S3M
 from adam_test_data.datasets import load_P9
+from adam_test_data.datasets import load_NEOMOD
 
 S3M_DIR = "S3M_v09.05.15"
 P9_DIR = "P9"
+NEOMOD_FILE = "NEOMOD.txt"
 
 S3M = load_S3M(S3M_DIR)
 P9 = load_P9(P9_DIR)
+NEOMOD = load_NEOMOD(NEOMOD_FILE, seed=20251002)
 ```
 
-Loading in a pointing table for a survey or telescope. Here we create one for NSC DR2:
-
+Create a simulated survey:
 ```python
 import numpy as np
-import pandas as pd
-import pyarrow as pa
 
-from astropy.time import Time
-from adam_test_data.observatories.presets import load_W84
-from adam_test_data.pointings import Pointings
+from adam_test_data.survey import Survey, SurveyFootprint, create_survey_pointings
+from adam_test_data.observatories.observatory import FieldOfView
 
-w84 = load_W84()
+days = 90
+start_night = 61000
+end_night = start_night + days
 
-# Load in the NSC DR2 exposures (this is external data not included in the package)
-nsc_dr2_exposures = pd.read_csv("nsc_dr2_exposure.csv")
-nsc_dr2_exposures["depth5sig"] = nsc_dr2_exposures["depth95"]
-nsc_dr2_exposures_w84 = nsc_dr2_exposures[nsc_dr2_exposures["instrument"] == "c4d"]
-
-# Create a Pointings object using the exposures info
-w84_pointings = Pointings.from_kwargs(
-    observationId=nsc_dr2_exposures_w84["exposure"],
-    observationStartMJD_TAI=Time(nsc_dr2_exposures_w84["mjd"], format="mjd", scale="utc").tai.mjd,
-    visitTime=nsc_dr2_exposures_w84["exptime"],
-    visitExposureTime=nsc_dr2_exposures_w84["exptime"],
-    filter=nsc_dr2_exposures_w84["filter"],
-    seeingFwhmGeom_arcsec=nsc_dr2_exposures_w84["fwhm"],
-    seeingFwhmEff_arcsec=nsc_dr2_exposures_w84["fwhm"],
-    fieldFiveSigmaDepth_mag=nsc_dr2_exposures_w84["depth5sig"],
-    fieldRA_deg=nsc_dr2_exposures_w84["ra"],
-    fieldDec_deg=nsc_dr2_exposures_w84["dec"],
-    rotSkyPos_deg=np.zeros(len(nsc_dr2_exposures_w84)),
-    observatory_code=pa.repeat("W84", len(nsc_dr2_exposures_w84)),
-    name="NSC",
+x05 = load_X05()
+x05.fov = FieldOfView(
+    camera_model="circle",
+    fill_factor=1.0,
+    circle_radius=1.5 * np.sqrt(10 / np.pi),
+    footprint_edge_threshold=None,
 )
+
+survey = Survey(
+    name="X05-quad",
+    observatory_code="X05",
+    local_observing_start_time=9,
+    observing_duration=8,
+    visits_per_night=4,
+    start_night=start_night,
+    end_night=end_night,
+    filters=["u", "g", "r", "i", "z", "y"],
+    exposure_time=30,
+    slew_time=5,
+    max_zenith_angle=70,
+)
+
+survey_footprint = SurveyFootprint.create(nside=16)
+survey_pointings = create_survey_pointings(survey, survey_footprint, {"X05": x05})
+survey_pointings.to_parquet("survey_pointings_20251002.parquet")
 ```
 
-Generate test data for one of the populations and one of the observatories:
+Create a synthethic catalog for the desired populations:
 ```python
+import quivr as qv
 from adam_test_data.main import generate_test_data
 
+population = qv.concatenate([S3M, P9, NEOMOD])
+
 catalog_file, noise_files, summary = generate_test_data(
-    "S3M_NSC_W84", 
-    s3m, 
-    w84_pointings, 
-    w84, 
-    noise_densities=[100, 200], 
-    max_processes=30, 
+    "Population-X05-Quads-20251002", 
+    population, 
+    survey_pointings, 
+    x05, 
+    noise_densities=[10, 100, 500, 1000], 
+    max_processes=40, 
     chunk_size=500, 
+    noise_chunk_size=20,
     cleanup=True
 )
-
-# Load in the generated test data with the desired noise density
-catalog = summary.load_test_data("NSC_W84_S3M", 100)
-
 ```

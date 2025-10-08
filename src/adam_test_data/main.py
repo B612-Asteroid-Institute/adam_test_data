@@ -31,7 +31,7 @@ class SorchaDerivedOutputs(ABC):
 
     @abstractmethod
     def to_source_catalog(
-        self, catalog_id: str, exposure_id: str, observatory_code: str
+        self, catalog_id: str, observatory_code: str
     ) -> SourceCatalog:
         """
         Convert the Sorcha output to a SourceCatalog.
@@ -40,8 +40,6 @@ class SorchaDerivedOutputs(ABC):
         ----------
         catalog_id : str
             The ID of the catalog.
-        exposure_id : str
-            The ID of the exposure.
         observatory_code : str
             The code of the observatory.
 
@@ -895,10 +893,8 @@ def generate_test_data(
     if time_range is not None:
         pointings_filtered = survey_pointings.apply_mask(
             pc.and_(
-                pc.greater_equal(
-                    survey_pointings.observationStartMJD_TAI, time_range[0]
-                ),
-                pc.less_equal(survey_pointings.observationStartMJD_TAI, time_range[1]),
+                pc.greater_equal(survey_pointings.exposure_start.mjd(), time_range[0]),
+                pc.less_equal(survey_pointings.exposure_start.mjd(), time_range[1]),
             )
         )
     else:

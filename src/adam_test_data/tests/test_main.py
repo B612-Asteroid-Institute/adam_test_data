@@ -13,8 +13,8 @@ from adam_core.time import Timestamp
 
 from ..main import generate_test_data, sorcha, write_sorcha_inputs
 from ..observatories import FieldOfView, Observatory, Simulation
-from ..pointings import Pointings
 from ..populations import PhotometricProperties, SmallBodies
+from ..survey import SurveyPointings
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def small_bodies() -> SmallBodies:
 
 
 @pytest.fixture
-def pointings() -> Pointings:
+def pointings() -> SurveyPointings:
     # Generated using adam_core:
     # import numpy as np
     # from astropy import units as u
@@ -85,18 +85,18 @@ def pointings() -> Pointings:
     )
     num_visits = len(observation_times)
 
-    return Pointings.from_kwargs(
-        observationId=[f"exp{i:02d}" for i in range(num_visits)],
-        observationStartMJD_TAI=observation_times.mjd(),
-        visitTime=pa.repeat(34, num_visits),
-        visitExposureTime=pa.repeat(30, num_visits),
+    return SurveyPointings.from_kwargs(
+        exposure_id=[f"exp{i:02d}" for i in range(num_visits)],
+        exposure_start=observation_times,
+        exposure_duration=pa.repeat(30.0, num_visits),
         filter=["u", "g", "r", "i", "z", "y"],
-        seeingFwhmGeom_arcsec=pa.repeat(0.25, num_visits),
-        seeingFwhmEff_arcsec=pa.repeat(0.25, num_visits),
-        fieldFiveSigmaDepth_mag=pa.repeat(24.0, num_visits),
+        field_id=pa.repeat(0, num_visits),
+        fwhm_geom=pa.repeat(0.25, num_visits),
+        fwhm_eff=pa.repeat(0.25, num_visits),
+        five_sigma_depth=pa.repeat(24.0, num_visits),
         # These are the predicted positions of 2013 RR165 at the observation times
         # as observed from the Rubin Observatory LSST
-        fieldRA_deg=[
+        field_ra=[
             313.23563951677465,
             312.8526829837726,
             312.4507127362583,
@@ -104,7 +104,7 @@ def pointings() -> Pointings:
             311.5978588440544,
             311.15144471605623,
         ],
-        fieldDec_deg=[
+        field_dec=[
             -17.699419833054964,
             -17.75604384734044,
             -17.816253170916713,
@@ -112,8 +112,8 @@ def pointings() -> Pointings:
             -17.945108182773343,
             -18.01255021852454,
         ],
-        rotSkyPos_deg=pa.repeat(0.0, num_visits),
         observatory_code=pa.repeat("X05", num_visits),
+        observing_night=pa.repeat(0, num_visits),
         name="TestPointings",
     )
 
@@ -137,7 +137,7 @@ def observatory() -> Observatory:
 
 
 def test_write_sorcha_inputs(
-    small_bodies: SmallBodies, pointings: Pointings, observatory: Observatory
+    small_bodies: SmallBodies, pointings: SurveyPointings, observatory: Observatory
 ) -> None:
     # Test that write_sorcha_inputs writes the expected files to the expected locations
     # The actual contents of the files are not checked here but in different tests
@@ -145,7 +145,7 @@ def test_write_sorcha_inputs(
 
         paths = write_sorcha_inputs(
             small_bodies=small_bodies,
-            pointings=pointings,
+            pointings=pointings.to_sorcha_pointings(),
             observatory=observatory,
             output_dir=temp_dir,
         )
@@ -153,14 +153,14 @@ def test_write_sorcha_inputs(
         # Check that the expected files were written
         assert paths["orbits"] == f"{temp_dir}/orbits.csv"
         assert paths["photometric_properties"] == f"{temp_dir}/properties.csv"
-        assert paths["pointings"] == f"{temp_dir}/pointings.db"
+        assert paths["pointings"] == f"{temp_dir}/survey_pointings.db"
         assert paths["config"] == f"{temp_dir}/config.ini"
         for k, v in paths.items():
             assert os.path.exists(v)
 
         paths = write_sorcha_inputs(
             small_bodies=small_bodies,
-            pointings=pointings,
+            pointings=pointings.to_sorcha_pointings(),
             observatory=observatory,
             output_dir=temp_dir,
             format="whitespace",
@@ -180,7 +180,7 @@ def test_write_sorcha_inputs(
 
 
 def test_sorcha(
-    small_bodies: SmallBodies, pointings: Pointings, observatory: Observatory
+    small_bodies: SmallBodies, pointings: SurveyPointings, observatory: Observatory
 ) -> None:
     # Test that _run_sorcha runs without error and returns least 6 observations
 
@@ -191,7 +191,6 @@ def test_sorcha(
             pointings,
             observatory,
             randomization=False,
-            output_columns="all",
         )
         assert len(catalog) == 6
         assert pc.all(
@@ -203,7 +202,7 @@ def test_sorcha(
 
 
 def test_generate_test_data_no_noise(
-    small_bodies: SmallBodies, pointings: Pointings, observatory: Observatory
+    small_bodies: SmallBodies, pointings: SurveyPointings, observatory: Observatory
 ) -> None:
 
     with tempfile.TemporaryDirectory() as out_dir:
@@ -214,7 +213,6 @@ def test_generate_test_data_no_noise(
             pointings,
             observatory,
             randomization=False,
-            output_columns="all",
             chunk_size=10,
             max_processes=1,
             cleanup=True,
@@ -236,7 +234,6 @@ def test_generate_test_data_no_noise(
             pointings,
             observatory,
             randomization=False,
-            output_columns="all",
             chunk_size=10,
             max_processes=1,
             seed=42,
@@ -256,7 +253,7 @@ def test_generate_test_data_no_noise(
 
 
 def test_generate_test_data_with_noise(
-    small_bodies: SmallBodies, pointings: Pointings, observatory: Observatory
+    small_bodies: SmallBodies, pointings: SurveyPointings, observatory: Observatory
 ) -> None:
 
     with tempfile.TemporaryDirectory() as out_dir:
@@ -268,7 +265,6 @@ def test_generate_test_data_with_noise(
             observatory,
             randomization=False,
             noise_densities=[100, 1000],
-            output_columns="all",
             chunk_size=10,
             max_processes=1,
             seed=42,
