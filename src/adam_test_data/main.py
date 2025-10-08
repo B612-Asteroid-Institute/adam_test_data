@@ -184,8 +184,8 @@ class SorchaOutputAll(qv.Table, SorchaDerivedOutputs):
             ),
             ra=self.RA_deg,
             dec=self.Dec_deg,
-            ra_sigma=self.astrometricSigma_deg,
-            dec_sigma=self.astrometricSigma_deg,
+            ra_sigma=pc.multiply(self.astrometricSigma_deg, 3600.0),
+            dec_sigma=pc.multiply(self.astrometricSigma_deg, 3600.0),
             # Here we use the trailed source mag as the mag.
             # In the limit where the source is not trailed, this should
             # approach the PSFMag.
