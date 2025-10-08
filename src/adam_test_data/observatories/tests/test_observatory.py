@@ -115,8 +115,7 @@ def test_observatory_to_sorcha_config() -> None:
 
     assert (
         observatory_to_sorcha_config(obs)
-        == """
-# Sorcha Configuration File - ADAM Test Data - X05
+        == """# Sorcha Configuration File - ADAM Test Data - X05
 
 [INPUT]
 ephemerides_type = ar

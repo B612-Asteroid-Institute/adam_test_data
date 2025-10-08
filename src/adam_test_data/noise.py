@@ -14,14 +14,14 @@ import pyarrow.parquet as pq
 import quivr as qv
 import ray
 from adam_core.observations import SourceCatalog
-from adam_core.propagator.utils import _iterate_chunk_indices
 from adam_core.ray_cluster import initialize_use_ray
 from adam_core.time import Timestamp
+from adam_core.utils.iter import _iterate_chunk_indices
 from jax import Array
 from scipy.stats import skewnorm
 
 from .observatories import Observatory
-from .pointings import Pointings
+from .survey import SurveyPointings
 
 
 def magnitude_model(
@@ -137,7 +137,7 @@ def identify_within_circle(
 
 
 def add_noise(
-    pointings: Pointings,
+    pointings: SurveyPointings,
     observatory: Observatory,
     density: float,
     tag: Optional[str] = "noise",
@@ -152,7 +152,7 @@ def add_noise(
 
     Parameters
     ----------
-    pointings : Pointings
+    pointings : SurveyPointings
         The pointings to add noise to.
     observatory : Observatory
         The observatory that took the pointings.
@@ -188,8 +188,8 @@ def add_noise(
 
     for i, pointing in enumerate(pointings):
 
-        ra = pointing.fieldRA_deg[0].as_py()
-        dec = pointing.fieldDec_deg[0].as_py()
+        ra = pointing.field_ra[0].as_py()
+        dec = pointing.field_dec[0].as_py()
         filter_i = pointing.filter[0].as_py()
 
         # Generate random detections on the whole sky
@@ -208,20 +208,20 @@ def add_noise(
         try:
             mag, mag_err = magnitude_model(
                 n_dets,
-                pointing.fieldFiveSigmaDepth_mag[0].as_py(),
+                pointing.five_sigma_depth[0].as_py(),
                 mag_scale[i],
                 mag_skewness[i],
                 brightness_limit=bright_limits[filter_i],
             )
         except ValueError as e:
             warnings.warn(
-                f"Skipping pointing {pointing.observationId[0].as_py()}: {e}",
+                f"Skipping pointing {pointing.exposure_id[0].as_py()}: {e}",
                 UserWarning,
             )
             continue
 
         # Calculate the astrometric error (here we use the seeing FWHM of the pointing)
-        fwhm = pointing.seeingFwhmEff_arcsec[0].as_py()
+        fwhm = pointing.fwhm_eff[0].as_py()
         astrometric_error_arcsec = np.abs(np.random.normal(0.0, fwhm / 2.355, n_dets))
 
         # Filter the detections that are within the circular FOV
@@ -236,23 +236,29 @@ def add_noise(
 
         num_obs = len(ra_dets)
         observation_id = [uuid.uuid4().hex for _ in range(num_obs)]
-        exposure_id = pa.repeat(pointing.observationId[0], num_obs)
-        observation_time = pa.repeat(pointing.exposure_midpoint()[0], num_obs)
+        exposure_id = pa.repeat(pointing.exposure_id[0], num_obs)
+        midpoint = pointing.exposure_midpoint()[0]
+        observation_time = Timestamp.from_kwargs(
+            days=pa.repeat(midpoint.days[0], num_obs),
+            nanos=pa.repeat(midpoint.nanos[0], num_obs),
+            scale=midpoint.scale,
+        )
         observatory_code = pa.repeat(observatory.code, num_obs)
         filter = pa.repeat(filter_i, num_obs)
-        exposure_start_time = Timestamp.from_mjd(
-            pa.repeat(pointing.observationStartMJD_TAI[0], num_obs),
-            scale="tai",
+        exposure_start_time = Timestamp.from_kwargs(
+            days=pa.repeat(pointing.exposure_start.days[0], num_obs),
+            nanos=pa.repeat(pointing.exposure_start.nanos[0], num_obs),
+            scale=pointing.exposure_start.scale,
         )
-        exposure_duration = pa.repeat(pointing.visitExposureTime[0], num_obs)
-        exposure_seeing = pa.repeat(pointing.seeingFwhmEff_arcsec[0], num_obs)
-        exposure_depth_5sigma = pa.repeat(pointing.fieldFiveSigmaDepth_mag[0], num_obs)
+        exposure_duration = pa.repeat(pointing.exposure_duration[0], num_obs)
+        exposure_seeing = pa.repeat(pointing.fwhm_eff[0], num_obs)
+        exposure_depth_5sigma = pa.repeat(pointing.five_sigma_depth[0], num_obs)
         catalog_id = pa.repeat(tag, num_obs)
 
         noise_pointing = SourceCatalog.from_kwargs(
             id=observation_id,
             exposure_id=exposure_id,
-            time=Timestamp.from_mjd(observation_time, scale="tai"),
+            time=observation_time,
             ra=ra_dets,
             dec=dec_dets,
             ra_sigma=astrometric_error_arcsec,
@@ -278,7 +284,7 @@ def noise_worker(
     out_dir: str,
     pointing_ids: pa.Array,
     pointing_ids_indices: tuple[int, int],
-    pointings: Pointings,
+    pointings: SurveyPointings,
     observatory: Observatory,
     density: float,
     tag: Optional[str] = "noise",
@@ -314,7 +320,7 @@ def noise_worker(
     pointing_ids = pointing_ids[pointing_ids_indices[0] : pointing_ids_indices[1]]
     pointings_chunk = pointings.apply_mask(
         pc.is_in(
-            pointings.observationId,
+            pointings.exposure_id,
             pointing_ids,
         )
     )
@@ -344,7 +350,7 @@ noise_worker_remote.options(num_cpus=1)
 
 def generate_noise(
     output_dir: str,
-    pointings: Pointings,
+    pointings: SurveyPointings,
     observatory: Observatory,
     density: float,
     tag: Optional[str] = "noise",
@@ -358,7 +364,7 @@ def generate_noise(
 
     Parameters
     ----------
-    pointings : Pointings
+    pointings : SurveyPointings
         The pointings to generate noise detections for.
     observatory : Observatory
         The observatory that took the pointings.
@@ -384,7 +390,7 @@ def generate_noise(
     if max_processes is None:
         max_processes = mp.cpu_count()
 
-    pointing_ids = pointings.observationId
+    pointing_ids = pointings.exposure_id
     noise_catalog = SourceCatalog.empty()
 
     # Create the output directory if it doesn't exist

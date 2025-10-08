@@ -8,13 +8,14 @@ authors = [
 readme = "README.md"
 license = {file = "LICENSE"}
 keywords = []
-requires-python = ">=3.11,<4.0"
+requires-python = "<3.13,>3.11"
 dependencies = [
-    "adam_core@git+https://github.com/B612-Asteroid-Institute/adam_core@d27d19f549e3db8e8688b880f85e9c344b28b4d1#egg=adam_core",
+    "adam-core>=0.5.2",
     "jax",
     "ray",
     "sorcha@git+https://github.com/dirac-institute/sorcha@86724e74fcb8ae548a030c7c6beee1796b13b5e7#egg=sorcha",
     "quivr",
+    "plotly>=6.3.0",
 ]
 
 [build-system]
@@ -45,7 +46,11 @@ dev = [
     "pytest-benchmark",
     "black",
     "isort",
-    "ipython"
+    "ipython",
+    "ipykernel>=6.30.1",
+    "nbformat>=5.10.4",
+    "jupyter",
+    "types-pytz>=2025.2.0.20250809",
 ]
 
 [tool.pdm.scripts]
